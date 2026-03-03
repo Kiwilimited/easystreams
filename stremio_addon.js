@@ -136,7 +136,7 @@ const ENABLE_TMDB_ANIME_DETECTION = process.env.ENABLE_TMDB_ANIME_DETECTION !== 
 const TMDB_ANIME_DETECTION_TIMEOUT = Number.parseInt(process.env.TMDB_ANIME_DETECTION_TIMEOUT_MS || '1200', 10) || 1200;
 const TMDB_ANIME_CACHE_TTL = Number.parseInt(process.env.TMDB_ANIME_CACHE_TTL_MS || '21600000', 10) || 21600000;
 const ADDON_CACHE_ENABLED = process.env.ADDON_CACHE_ENABLED !== '0';
-const STREAM_CACHE_TTL = Number.parseInt(process.env.STREAM_CACHE_TTL_MS || '10800000', 10) || 10800000;
+const STREAM_CACHE_TTL = Number.parseInt(process.env.STREAM_CACHE_TTL_MS || '10000', 10) || 10000;
 const STREAM_CACHE_MAX_SIZE = Number.parseInt(process.env.STREAM_CACHE_MAX_SIZE || '50000', 10) || 50000;
 const STREAM_CACHE_MAX_BYTES = Number.parseInt(
     process.env.STREAM_CACHE_MAX_BYTES || String(100 * 1024 * 1024),
