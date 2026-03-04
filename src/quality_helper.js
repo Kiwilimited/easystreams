@@ -1,4 +1,4 @@
-
+const { createTimeoutSignal } = require("./fetch_helper.js");
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
 async function checkQualityFromPlaylist(url, headers = {}) {
@@ -9,23 +9,26 @@ async function checkQualityFromPlaylist(url, headers = {}) {
     if (!finalHeaders['User-Agent']) {
         finalHeaders['User-Agent'] = USER_AGENT;
     }
-    
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000); 
 
-    const response = await fetch(url, { 
-      headers: finalHeaders,
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
+    const timeoutConfig = createTimeoutSignal(3000);
+    try {
+      const response = await fetch(url, { 
+        headers: finalHeaders,
+        signal: timeoutConfig.signal
+      });
 
-    if (!response.ok) return null;
-    const text = await response.text();
+      if (!response.ok) return null;
+      const text = await response.text();
 
-    const quality = checkQualityFromText(text);
-    
-    if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
-    return quality;
+      const quality = checkQualityFromText(text);
+      
+      if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+      return quality;
+    } finally {
+      if (typeof timeoutConfig.cleanup === "function") {
+        timeoutConfig.cleanup();
+      }
+    }
   } catch (e) {
     return null;
   }

@@ -19,6 +19,18 @@ var __spreadValues = (a, b) => {
   return a;
 };
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __objRest = (source, exclude) => {
+  var target = {};
+  for (var prop in source)
+    if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0)
+      target[prop] = source[prop];
+  if (source != null && __getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(source)) {
+      if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
+        target[prop] = source[prop];
+    }
+  return target;
+};
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -47,13 +59,50 @@ var __async = (__this, __arguments, generator) => {
 var require_common = __commonJS({
   "src/extractors/common.js"(exports2, module2) {
     var USER_AGENT2 = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+    var ENC_CF_WORKER = "";
+    function decodeBase64UrlSafe(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
+      const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - normalized.length % 4);
+      const base64 = normalized + padding;
+      try {
+        if (typeof atob === "function") {
+          return atob(base64);
+        }
+      } catch (e) {
+      }
+      try {
+        if (typeof Buffer !== "undefined") {
+          return Buffer.from(base64, "base64").toString("utf8");
+        }
+      } catch (e) {
+      }
+      return "";
+    }
+    function resolveWorkerProxyUrl() {
+      let encoded = "";
+      try {
+        if (typeof global !== "undefined" && typeof global.ENC_CF_WORKER === "string") {
+          encoded = global.ENC_CF_WORKER;
+        } else {
+          encoded = ENC_CF_WORKER;
+        }
+      } catch (e) {
+        encoded = ENC_CF_WORKER;
+      }
+      const decoded = decodeBase64UrlSafe(encoded).trim();
+      if (!/^https?:\/\//i.test(decoded)) return "";
+      return decoded.replace(/\/+$/, "");
+    }
     function getProxiedUrl(url) {
       let proxyUrl = null;
       try {
         if (typeof global !== "undefined" && global.CF_PROXY_URL) {
           proxyUrl = global.CF_PROXY_URL;
-        } else if (typeof process !== "undefined" && process.env && process.env.CF_PROXY_URL) {
-          proxyUrl = process.env.CF_PROXY_URL;
+        } else {
+          proxyUrl = resolveWorkerProxyUrl();
         }
       } catch (e) {
       }
@@ -398,9 +447,70 @@ var require_vidoza = __commonJS({
   }
 });
 
+// src/fetch_helper.js
+var require_fetch_helper = __commonJS({
+  "src/fetch_helper.js"(exports2, module2) {
+    var FETCH_TIMEOUT2 = 3e4;
+    function createTimeoutSignal2(timeoutMs) {
+      const parsed = Number.parseInt(String(timeoutMs), 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { signal: void 0, cleanup: null, timed: false };
+      }
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
+      }
+      if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+        }, parsed);
+        return {
+          signal: controller.signal,
+          cleanup: () => clearTimeout(timeoutId),
+          timed: true
+        };
+      }
+      return { signal: void 0, cleanup: null, timed: false };
+    }
+    function fetchWithTimeout2(_0) {
+      return __async(this, arguments, function* (url, options = {}) {
+        if (typeof fetch === "undefined") {
+          throw new Error("No fetch implementation found!");
+        }
+        const _a = options, { timeout } = _a, fetchOptions = __objRest(_a, ["timeout"]);
+        const requestTimeout = timeout || FETCH_TIMEOUT2;
+        const timeoutConfig = createTimeoutSignal2(requestTimeout);
+        const requestOptions = __spreadValues({}, fetchOptions);
+        if (timeoutConfig.signal) {
+          if (requestOptions.signal && typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+            requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
+          } else if (!requestOptions.signal) {
+            requestOptions.signal = timeoutConfig.signal;
+          }
+        }
+        try {
+          const response = yield fetch(url, requestOptions);
+          return response;
+        } catch (error) {
+          if (error && error.name === "AbortError" && timeoutConfig.timed) {
+            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`);
+          }
+          throw error;
+        } finally {
+          if (typeof timeoutConfig.cleanup === "function") {
+            timeoutConfig.cleanup();
+          }
+        }
+      });
+    }
+    module2.exports = { fetchWithTimeout: fetchWithTimeout2, createTimeoutSignal: createTimeoutSignal2 };
+  }
+});
+
 // src/quality_helper.js
 var require_quality_helper = __commonJS({
   "src/quality_helper.js"(exports2, module2) {
+    var { createTimeoutSignal: createTimeoutSignal2 } = require_fetch_helper();
     var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
     function checkQualityFromPlaylist2(_0) {
       return __async(this, arguments, function* (url, headers = {}) {
@@ -410,18 +520,22 @@ var require_quality_helper = __commonJS({
           if (!finalHeaders["User-Agent"]) {
             finalHeaders["User-Agent"] = USER_AGENT2;
           }
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 3e3);
-          const response = yield fetch(url, {
-            headers: finalHeaders,
-            signal: controller.signal
-          });
-          clearTimeout(timeout);
-          if (!response.ok) return null;
-          const text = yield response.text();
-          const quality = checkQualityFromText(text);
-          if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
-          return quality;
+          const timeoutConfig = createTimeoutSignal2(3e3);
+          try {
+            const response = yield fetch(url, {
+              headers: finalHeaders,
+              signal: timeoutConfig.signal
+            });
+            if (!response.ok) return null;
+            const text = yield response.text();
+            const quality = checkQualityFromText(text);
+            if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+            return quality;
+          } finally {
+            if (typeof timeoutConfig.cleanup === "function") {
+              timeoutConfig.cleanup();
+            }
+          }
         } catch (e) {
           return null;
         }
@@ -7337,15 +7451,12 @@ var require_provider_urls2 = __commonJS({
     } catch (e) {
       embeddedProviderUrls = {};
     }
-    var env = typeof process !== "undefined" && process && typeof process.env === "object" && process.env ? process.env : {};
-    var configuredProviderUrlsFile = String(env.PROVIDER_URLS_FILE || "").trim();
     var defaultProviderUrlsFile = path && typeof __dirname !== "undefined" ? path.resolve(__dirname, "..", "provider_urls.json") : "";
-    var PROVIDER_URLS_FILE = configuredProviderUrlsFile ? path ? path.resolve(configuredProviderUrlsFile) : configuredProviderUrlsFile : defaultProviderUrlsFile;
-    var RELOAD_INTERVAL_MS = Number.parseInt(String(env.PROVIDER_URLS_RELOAD_MS || "1500"), 10) || 1500;
-    var DEFAULT_PROVIDER_URLS_URL = "https://raw.githubusercontent.com/realbestia1/easystreams/refs/heads/main/provider_urls.json";
-    var PROVIDER_URLS_URL = String(env.PROVIDER_URLS_URL || DEFAULT_PROVIDER_URLS_URL).trim();
-    var REMOTE_RELOAD_INTERVAL_MS = Number.parseInt(String(env.PROVIDER_URLS_REMOTE_RELOAD_MS || "10000"), 10) || 1e4;
-    var REMOTE_FETCH_TIMEOUT_MS = Number.parseInt(String(env.PROVIDER_URLS_REMOTE_TIMEOUT_MS || "5000"), 10) || 5e3;
+    var PROVIDER_URLS_FILE = defaultProviderUrlsFile;
+    var RELOAD_INTERVAL_MS = 1500;
+    var PROVIDER_URLS_URL = "https://raw.githubusercontent.com/realbestia1/easystreams/refs/heads/main/provider_urls.json";
+    var REMOTE_RELOAD_INTERVAL_MS = 1e4;
+    var REMOTE_FETCH_TIMEOUT_MS = 5e3;
     var ALIASES = {
       animeunity: ["animeunuty", "anime_unity"],
       animeworld: ["anime_world"],
@@ -7410,6 +7521,24 @@ var require_provider_urls2 = __commonJS({
       if (typeof fetch === "function") return fetch.bind(globalThis);
       return null;
     }
+    function createTimeoutSignal2(timeoutMs) {
+      const parsed = Number.parseInt(String(timeoutMs), 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { signal: void 0, cleanup: null };
+      }
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return { signal: AbortSignal.timeout(parsed), cleanup: null };
+      }
+      if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), parsed);
+        return {
+          signal: controller.signal,
+          cleanup: () => clearTimeout(timeoutId)
+        };
+      }
+      return { signal: void 0, cleanup: null };
+    }
     function refreshProviderUrlsFromRemoteIfNeeded(force = false) {
       return __async(this, null, function* () {
         if (!PROVIDER_URLS_URL) return;
@@ -7420,16 +7549,10 @@ var require_provider_urls2 = __commonJS({
         const fetchImpl = getFetchImpl();
         if (!fetchImpl) return;
         remoteInFlight = (() => __async(null, null, function* () {
-          let timeoutId = null;
-          let signal;
-          if (typeof AbortController !== "undefined") {
-            const controller = new AbortController();
-            signal = controller.signal;
-            timeoutId = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
-          }
+          const timeoutConfig = createTimeoutSignal2(REMOTE_FETCH_TIMEOUT_MS);
           try {
             const response = yield fetchImpl(PROVIDER_URLS_URL, {
-              signal,
+              signal: timeoutConfig.signal,
               headers: {
                 "accept": "application/json"
               }
@@ -7442,7 +7565,7 @@ var require_provider_urls2 = __commonJS({
             }
           } catch (e) {
           } finally {
-            if (timeoutId) clearTimeout(timeoutId);
+            if (typeof timeoutConfig.cleanup === "function") timeoutConfig.cleanup();
             remoteInFlight = null;
           }
         }))();
@@ -7459,20 +7582,9 @@ var require_provider_urls2 = __commonJS({
       }
       return "";
     }
-    function findFromEnv(envKeys = []) {
-      for (const envKey of envKeys) {
-        const value = normalizeUrl(process.env[envKey]);
-        if (value) return value;
-      }
-      return "";
-    }
-    function getProviderUrl2(providerKey, envKeys = []) {
-      const safeEnvKeys = Array.isArray(envKeys) ? envKeys : [];
+    function getProviderUrl2(providerKey) {
       const fromJson = findFromJson(providerKey);
-      if (fromJson) return fromJson;
-      const fromEnv = findFromEnv(safeEnvKeys);
-      if (fromEnv) return fromEnv;
-      return "";
+      return fromJson || "";
     }
     function getProviderUrlsFilePath() {
       return PROVIDER_URLS_FILE;
@@ -7490,59 +7602,21 @@ var require_provider_urls2 = __commonJS({
   }
 });
 
-// src/fetch_helper.js
-var require_fetch_helper = __commonJS({
-  "src/fetch_helper.js"(exports2, module2) {
-    var FETCH_TIMEOUT2 = 3e4;
-    function fetchWithTimeout2(_0) {
-      return __async(this, arguments, function* (url, options = {}) {
-        if (typeof fetch === "undefined") {
-          throw new Error("No fetch implementation found!");
-        }
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-        }, options.timeout || FETCH_TIMEOUT2);
-        try {
-          const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
-            signal: controller.signal
-          }));
-          return response;
-        } catch (error) {
-          if (error.name === "AbortError") {
-            throw new Error(`Request to ${url} timed out after ${options.timeout || FETCH_TIMEOUT2}ms`);
-          }
-          throw error;
-        } finally {
-          clearTimeout(timeoutId);
-        }
-      });
-    }
-    module2.exports = { fetchWithTimeout: fetchWithTimeout2 };
-  }
-});
-
 // src/animeunity/index.js
 var cheerio = require("cheerio");
 var { extractVixCloud } = require_extractors();
 var { formatStream } = require_formatter();
 var { checkQualityFromPlaylist } = require_quality_helper();
 var { getProviderUrl } = require_provider_urls2();
-require_fetch_helper();
+var { createTimeoutSignal } = require_fetch_helper();
 function getUnityBaseUrl() {
-  return getProviderUrl(
-    "animeunity",
-    ["ANIMEUNITY_BASE_URL", "AU_BASE_URL"]
-  );
+  return getProviderUrl("animeunity");
 }
 function getMappingApiBase() {
-  return getProviderUrl(
-    "mapping_api",
-    ["MAPPING_API_URL"]
-  ).replace(/\/+$/, "");
+  return getProviderUrl("mapping_api").replace(/\/+$/, "");
 }
-var USER_AGENT = process.env.AU_USER_AGENT || process.env.AS_USER_AGENT || process.env.AW_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
-var FETCH_TIMEOUT = Number.parseInt(process.env.ANIMEUNITY_FETCH_TIMEOUT_MS || "10000", 10) || 1e4;
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+var FETCH_TIMEOUT = 1e4;
 var TTL = {
   http: 5 * 60 * 1e3,
   animePage: 15 * 60 * 1e3,
@@ -7692,6 +7766,11 @@ function extractQualityHint(value) {
   const match = text.match(/(\d{3,4}p)/i);
   return match ? match[1] : "Unknown";
 }
+function normalizeAnimeUnityQuality(value) {
+  const quality = String(value || "").trim();
+  if (!quality || ["unknown", "unknow"].includes(quality.toLowerCase())) return "720p";
+  return quality;
+}
 function normalizeEpisodesList(sourceEpisodes = []) {
   var _a, _b, _c;
   if (!Array.isArray(sourceEpisodes) || sourceEpisodes.length === 0) return [];
@@ -7727,13 +7806,22 @@ function normalizeEpisodesList(sourceEpisodes = []) {
 }
 function fetchWithTimeout(_0) {
   return __async(this, arguments, function* (url, options = {}, timeoutMs = FETCH_TIMEOUT) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutConfig = createTimeoutSignal(timeoutMs);
+    const requestOptions = __spreadValues({}, options);
+    if (timeoutConfig.signal) {
+      if (requestOptions.signal && typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+        requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
+      } else if (!requestOptions.signal) {
+        requestOptions.signal = timeoutConfig.signal;
+      }
+    }
     try {
-      const response = yield fetch(url, __spreadProps(__spreadValues({}, options), { signal: controller.signal }));
+      const response = yield fetch(url, requestOptions);
       return response;
     } finally {
-      clearTimeout(timeoutId);
+      if (typeof timeoutConfig.cleanup === "function") {
+        timeoutConfig.cleanup();
+      }
     }
   });
 }
@@ -8257,6 +8345,7 @@ function extractStreamsFromAnimePath(animePath, requestedEpisode) {
           });
           if (detected) quality = detected;
         }
+        quality = normalizeAnimeUnityQuality(quality);
         streams.push({
           name: `AnimeUnity${labelSuffix}`,
           title: displayTitle,
@@ -8335,6 +8424,7 @@ function extractStreamsFromAnimePath(animePath, requestedEpisode) {
         });
         if (detected) quality = detected;
       }
+      quality = normalizeAnimeUnityQuality(quality);
       fallbackStreams.push({
         name: `AnimeUnity${labelSuffix}`,
         title: displayTitle,

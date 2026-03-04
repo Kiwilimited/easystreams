@@ -5,6 +5,7 @@ const streamingcommunity = require('./streamingcommunity/index');
 const animeunity = require('./animeunity/index');
 const animeworld = require('./animeworld/index');
 const animesaturn = require('./animesaturn/index');
+const { createTimeoutSignal } = require('./fetch_helper.js');
 
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 const CONTEXT_TIMEOUT = 3000;
@@ -12,17 +13,18 @@ const CONTEXT_TIMEOUT = 3000;
 async function fetchJsonWithTimeout(url, timeoutMs = CONTEXT_TIMEOUT) {
     if (typeof fetch === 'undefined') return null;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutConfig = createTimeoutSignal(timeoutMs);
 
     try {
-        const response = await fetch(url, { signal: controller.signal });
+        const response = await fetch(url, { signal: timeoutConfig.signal });
         if (!response.ok) return null;
         return await response.json();
     } catch {
         return null;
     } finally {
-        clearTimeout(timeoutId);
+        if (typeof timeoutConfig.cleanup === "function") {
+            timeoutConfig.cleanup();
+        }
     }
 }
 

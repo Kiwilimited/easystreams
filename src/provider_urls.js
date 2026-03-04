@@ -21,31 +21,16 @@ try {
   embeddedProviderUrls = {};
 }
 
-const env =
-  typeof process !== "undefined" &&
-  process &&
-  typeof process.env === "object" &&
-  process.env
-    ? process.env
-    : {};
-
-const configuredProviderUrlsFile = String(env.PROVIDER_URLS_FILE || "").trim();
 const defaultProviderUrlsFile =
   path && typeof __dirname !== "undefined"
     ? path.resolve(__dirname, "..", "provider_urls.json")
     : "";
 
-const PROVIDER_URLS_FILE = configuredProviderUrlsFile
-  ? path
-    ? path.resolve(configuredProviderUrlsFile)
-    : configuredProviderUrlsFile
-  : defaultProviderUrlsFile;
-
-const RELOAD_INTERVAL_MS = Number.parseInt(String(env.PROVIDER_URLS_RELOAD_MS || "1500"), 10) || 1500;
-const DEFAULT_PROVIDER_URLS_URL = "https://raw.githubusercontent.com/realbestia1/easystreams/refs/heads/main/provider_urls.json";
-const PROVIDER_URLS_URL = String(env.PROVIDER_URLS_URL || DEFAULT_PROVIDER_URLS_URL).trim();
-const REMOTE_RELOAD_INTERVAL_MS = Number.parseInt(String(env.PROVIDER_URLS_REMOTE_RELOAD_MS || "10000"), 10) || 10000;
-const REMOTE_FETCH_TIMEOUT_MS = Number.parseInt(String(env.PROVIDER_URLS_REMOTE_TIMEOUT_MS || "5000"), 10) || 5000;
+const PROVIDER_URLS_FILE = defaultProviderUrlsFile;
+const RELOAD_INTERVAL_MS = 1500;
+const PROVIDER_URLS_URL = "https://raw.githubusercontent.com/realbestia1/easystreams/refs/heads/main/provider_urls.json";
+const REMOTE_RELOAD_INTERVAL_MS = 10000;
+const REMOTE_FETCH_TIMEOUT_MS = 5000;
 
 const ALIASES = {
   animeunity: ["animeunuty", "anime_unity"],
@@ -122,6 +107,28 @@ function getFetchImpl() {
   return null;
 }
 
+function createTimeoutSignal(timeoutMs) {
+  const parsed = Number.parseInt(String(timeoutMs), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { signal: undefined, cleanup: null };
+  }
+
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return { signal: AbortSignal.timeout(parsed), cleanup: null };
+  }
+
+  if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), parsed);
+    return {
+      signal: controller.signal,
+      cleanup: () => clearTimeout(timeoutId)
+    };
+  }
+
+  return { signal: undefined, cleanup: null };
+}
+
 async function refreshProviderUrlsFromRemoteIfNeeded(force = false) {
   if (!PROVIDER_URLS_URL) return;
   if (remoteInFlight) return;
@@ -134,17 +141,11 @@ async function refreshProviderUrlsFromRemoteIfNeeded(force = false) {
   if (!fetchImpl) return;
 
   remoteInFlight = (async () => {
-    let timeoutId = null;
-    let signal;
-    if (typeof AbortController !== "undefined") {
-      const controller = new AbortController();
-      signal = controller.signal;
-      timeoutId = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
-    }
+    const timeoutConfig = createTimeoutSignal(REMOTE_FETCH_TIMEOUT_MS);
 
     try {
       const response = await fetchImpl(PROVIDER_URLS_URL, {
-        signal,
+        signal: timeoutConfig.signal,
         headers: {
           "accept": "application/json"
         }
@@ -158,7 +159,7 @@ async function refreshProviderUrlsFromRemoteIfNeeded(force = false) {
     } catch {
       // Ignore remote refresh errors: keep last known values.
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+      if (typeof timeoutConfig.cleanup === "function") timeoutConfig.cleanup();
       remoteInFlight = null;
     }
   })();
@@ -176,23 +177,9 @@ function findFromJson(providerKey) {
   return "";
 }
 
-function findFromEnv(envKeys = []) {
-  for (const envKey of envKeys) {
-    const value = normalizeUrl(process.env[envKey]);
-    if (value) return value;
-  }
-  return "";
-}
-
-function getProviderUrl(providerKey, envKeys = []) {
-  const safeEnvKeys = Array.isArray(envKeys) ? envKeys : [];
+function getProviderUrl(providerKey) {
   const fromJson = findFromJson(providerKey);
-  if (fromJson) return fromJson;
-
-  const fromEnv = findFromEnv(safeEnvKeys);
-  if (fromEnv) return fromEnv;
-
-  return "";
+  return fromJson || "";
 }
 
 function getProviderUrlsFilePath() {

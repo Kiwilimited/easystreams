@@ -5,28 +5,19 @@ const { extractVixCloud } = require("../extractors");
 const { formatStream } = require("../formatter.js");
 const { checkQualityFromPlaylist } = require("../quality_helper.js");
 const { getProviderUrl } = require("../provider_urls.js");
-require("../fetch_helper.js");
+const { createTimeoutSignal } = require("../fetch_helper.js");
 
 function getUnityBaseUrl() {
-  return getProviderUrl(
-    "animeunity",
-    ["ANIMEUNITY_BASE_URL", "AU_BASE_URL"]
-  );
+  return getProviderUrl("animeunity");
 }
 
 function getMappingApiBase() {
-  return getProviderUrl(
-    "mapping_api",
-    ["MAPPING_API_URL"]
-  ).replace(/\/+$/, "");
+  return getProviderUrl("mapping_api").replace(/\/+$/, "");
 }
 const USER_AGENT =
-  process.env.AU_USER_AGENT ||
-  process.env.AS_USER_AGENT ||
-  process.env.AW_USER_AGENT ||
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
-const FETCH_TIMEOUT = Number.parseInt(process.env.ANIMEUNITY_FETCH_TIMEOUT_MS || "10000", 10) || 10000;
+const FETCH_TIMEOUT = 10000;
 const TTL = {
   http: 5 * 60 * 1000,
   animePage: 15 * 60 * 1000,
@@ -220,6 +211,12 @@ function extractQualityHint(value) {
   return match ? match[1] : "Unknown";
 }
 
+function normalizeAnimeUnityQuality(value) {
+  const quality = String(value || "").trim();
+  if (!quality || ["unknown", "unknow"].includes(quality.toLowerCase())) return "720p";
+  return quality;
+}
+
 function normalizeEpisodesList(sourceEpisodes = []) {
   if (!Array.isArray(sourceEpisodes) || sourceEpisodes.length === 0) return [];
   const out = [];
@@ -258,13 +255,27 @@ function normalizeEpisodesList(sourceEpisodes = []) {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutConfig = createTimeoutSignal(timeoutMs);
+  const requestOptions = { ...options };
+  if (timeoutConfig.signal) {
+    if (
+      requestOptions.signal &&
+      typeof AbortSignal !== "undefined" &&
+      typeof AbortSignal.any === "function"
+    ) {
+      requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
+    } else if (!requestOptions.signal) {
+      requestOptions.signal = timeoutConfig.signal;
+    }
+  }
+
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, requestOptions);
     return response;
   } finally {
-    clearTimeout(timeoutId);
+    if (typeof timeoutConfig.cleanup === "function") {
+      timeoutConfig.cleanup();
+    }
   }
 }
 
@@ -904,6 +915,7 @@ async function extractStreamsFromAnimePath(animePath, requestedEpisode) {
         });
         if (detected) quality = detected;
       }
+      quality = normalizeAnimeUnityQuality(quality);
 
       streams.push({
         name: `AnimeUnity${labelSuffix}`,
@@ -990,6 +1002,7 @@ async function extractStreamsFromAnimePath(animePath, requestedEpisode) {
       });
       if (detected) quality = detected;
     }
+    quality = normalizeAnimeUnityQuality(quality);
     fallbackStreams.push({
       name: `AnimeUnity${labelSuffix}`,
       title: displayTitle,

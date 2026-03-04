@@ -4,28 +4,19 @@ const cheerio = require("cheerio");
 const { formatStream } = require("../formatter.js");
 const { checkQualityFromPlaylist } = require("../quality_helper.js");
 const { getProviderUrl } = require("../provider_urls.js");
-require("../fetch_helper.js");
+const { createTimeoutSignal } = require("../fetch_helper.js");
 
 function getSaturnBaseUrl() {
-  return getProviderUrl(
-    "animesaturn",
-    ["ANIMESATURN_BASE_URL", "AS_BASE_URL"]
-  );
+  return getProviderUrl("animesaturn");
 }
 
 function getMappingApiBase() {
-  return getProviderUrl(
-    "mapping_api",
-    ["MAPPING_API_URL"]
-  ).replace(/\/+$/, "");
+  return getProviderUrl("mapping_api").replace(/\/+$/, "");
 }
 const USER_AGENT =
-  process.env.AS_USER_AGENT ||
-  process.env.AW_USER_AGENT ||
-  process.env.AU_USER_AGENT ||
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
-const FETCH_TIMEOUT = Number.parseInt(process.env.ANIMESATURN_FETCH_TIMEOUT_MS || "10000", 10) || 10000;
+const FETCH_TIMEOUT = 10000;
 const TTL = {
   http: 5 * 60 * 1000,
   page: 15 * 60 * 1000,
@@ -272,12 +263,26 @@ function normalizeAnimeSaturnQuality(value) {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutConfig = createTimeoutSignal(timeoutMs);
+  const requestOptions = { ...options };
+  if (timeoutConfig.signal) {
+    if (
+      requestOptions.signal &&
+      typeof AbortSignal !== "undefined" &&
+      typeof AbortSignal.any === "function"
+    ) {
+      requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
+    } else if (!requestOptions.signal) {
+      requestOptions.signal = timeoutConfig.signal;
+    }
+  }
+
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await fetch(url, requestOptions);
   } finally {
-    clearTimeout(timeoutId);
+    if (typeof timeoutConfig.cleanup === "function") {
+      timeoutConfig.cleanup();
+    }
   }
 }
 

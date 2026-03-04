@@ -20,17 +20,11 @@ var __async = (__this, __arguments, generator) => {
 };
 const { getProviderUrl } = require("../provider_urls.js");
 function getGuardaserieBaseUrl() {
-  return getProviderUrl(
-    "guardaserie",
-    ["GUARDASERIE_BASE_URL", "GS_BASE_URL"]
-  );
+  return getProviderUrl("guardaserie");
 }
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 function getMappingApiUrl() {
-  return getProviderUrl(
-    "mapping_api",
-    ["MAPPING_API_URL"]
-  ).replace(/\/+$/, "");
+  return getProviderUrl("mapping_api").replace(/\/+$/, "");
 }
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 

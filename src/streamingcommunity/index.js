@@ -1,10 +1,7 @@
 const { getProviderUrl } = require("../provider_urls.js");
 
 function getStreamingCommunityBaseUrl() {
-  return getProviderUrl(
-    "streamingcommunity",
-    ["STREAMINGCOMMUNITY_BASE_URL", "SC_BASE_URL"]
-  );
+  return getProviderUrl("streamingcommunity");
 }
 
 const { formatStream } = require('../formatter.js');

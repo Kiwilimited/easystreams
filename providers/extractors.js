@@ -15,6 +15,18 @@ var __spreadValues = (a, b) => {
     }
   return a;
 };
+var __objRest = (source, exclude) => {
+  var target = {};
+  for (var prop in source)
+    if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0)
+      target[prop] = source[prop];
+  if (source != null && __getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(source)) {
+      if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
+        target[prop] = source[prop];
+    }
+  return target;
+};
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -43,13 +55,50 @@ var __async = (__this, __arguments, generator) => {
 var require_common = __commonJS({
   "src/extractors/common.js"(exports2, module2) {
     var USER_AGENT2 = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+    var ENC_CF_WORKER = "";
+    function decodeBase64UrlSafe(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
+      const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - normalized.length % 4);
+      const base64 = normalized + padding;
+      try {
+        if (typeof atob === "function") {
+          return atob(base64);
+        }
+      } catch (e) {
+      }
+      try {
+        if (typeof Buffer !== "undefined") {
+          return Buffer.from(base64, "base64").toString("utf8");
+        }
+      } catch (e) {
+      }
+      return "";
+    }
+    function resolveWorkerProxyUrl() {
+      let encoded = "";
+      try {
+        if (typeof global !== "undefined" && typeof global.ENC_CF_WORKER === "string") {
+          encoded = global.ENC_CF_WORKER;
+        } else {
+          encoded = ENC_CF_WORKER;
+        }
+      } catch (e) {
+        encoded = ENC_CF_WORKER;
+      }
+      const decoded = decodeBase64UrlSafe(encoded).trim();
+      if (!/^https?:\/\//i.test(decoded)) return "";
+      return decoded.replace(/\/+$/, "");
+    }
     function getProxiedUrl(url) {
       let proxyUrl = null;
       try {
         if (typeof global !== "undefined" && global.CF_PROXY_URL) {
           proxyUrl = global.CF_PROXY_URL;
-        } else if (typeof process !== "undefined" && process.env && process.env.CF_PROXY_URL) {
-          proxyUrl = process.env.CF_PROXY_URL;
+        } else {
+          proxyUrl = resolveWorkerProxyUrl();
         }
       } catch (e) {
       }
@@ -394,9 +443,70 @@ var require_vidoza = __commonJS({
   }
 });
 
+// src/fetch_helper.js
+var require_fetch_helper = __commonJS({
+  "src/fetch_helper.js"(exports2, module2) {
+    var FETCH_TIMEOUT = 3e4;
+    function createTimeoutSignal(timeoutMs) {
+      const parsed = Number.parseInt(String(timeoutMs), 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { signal: void 0, cleanup: null, timed: false };
+      }
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
+      }
+      if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+        }, parsed);
+        return {
+          signal: controller.signal,
+          cleanup: () => clearTimeout(timeoutId),
+          timed: true
+        };
+      }
+      return { signal: void 0, cleanup: null, timed: false };
+    }
+    function fetchWithTimeout(_0) {
+      return __async(this, arguments, function* (url, options = {}) {
+        if (typeof fetch === "undefined") {
+          throw new Error("No fetch implementation found!");
+        }
+        const _a = options, { timeout } = _a, fetchOptions = __objRest(_a, ["timeout"]);
+        const requestTimeout = timeout || FETCH_TIMEOUT;
+        const timeoutConfig = createTimeoutSignal(requestTimeout);
+        const requestOptions = __spreadValues({}, fetchOptions);
+        if (timeoutConfig.signal) {
+          if (requestOptions.signal && typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+            requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
+          } else if (!requestOptions.signal) {
+            requestOptions.signal = timeoutConfig.signal;
+          }
+        }
+        try {
+          const response = yield fetch(url, requestOptions);
+          return response;
+        } catch (error) {
+          if (error && error.name === "AbortError" && timeoutConfig.timed) {
+            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`);
+          }
+          throw error;
+        } finally {
+          if (typeof timeoutConfig.cleanup === "function") {
+            timeoutConfig.cleanup();
+          }
+        }
+      });
+    }
+    module2.exports = { fetchWithTimeout, createTimeoutSignal };
+  }
+});
+
 // src/quality_helper.js
 var require_quality_helper = __commonJS({
   "src/quality_helper.js"(exports2, module2) {
+    var { createTimeoutSignal } = require_fetch_helper();
     var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
     function checkQualityFromPlaylist(_0) {
       return __async(this, arguments, function* (url, headers = {}) {
@@ -406,18 +516,22 @@ var require_quality_helper = __commonJS({
           if (!finalHeaders["User-Agent"]) {
             finalHeaders["User-Agent"] = USER_AGENT2;
           }
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 3e3);
-          const response = yield fetch(url, {
-            headers: finalHeaders,
-            signal: controller.signal
-          });
-          clearTimeout(timeout);
-          if (!response.ok) return null;
-          const text = yield response.text();
-          const quality = checkQualityFromText(text);
-          if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
-          return quality;
+          const timeoutConfig = createTimeoutSignal(3e3);
+          try {
+            const response = yield fetch(url, {
+              headers: finalHeaders,
+              signal: timeoutConfig.signal
+            });
+            if (!response.ok) return null;
+            const text = yield response.text();
+            const quality = checkQualityFromText(text);
+            if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+            return quality;
+          } finally {
+            if (typeof timeoutConfig.cleanup === "function") {
+              timeoutConfig.cleanup();
+            }
+          }
         } catch (e) {
           return null;
         }

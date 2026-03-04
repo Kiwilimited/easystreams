@@ -5,17 +5,11 @@ const { checkQualityFromPlaylist } = require('../quality_helper');
 const { getProviderUrl } = require('../provider_urls.js');
 
 function getGuardoserieBaseUrl() {
-    return getProviderUrl(
-        'guardoserie',
-        ['GUARDOSERIE_BASE_URL', 'GOS_BASE_URL']
-    );
+    return getProviderUrl('guardoserie');
 }
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 function getMappingApiUrl() {
-    return getProviderUrl(
-        'mapping_api',
-        ['MAPPING_API_URL']
-    ).replace(/\/+$/, "");
+    return getProviderUrl('mapping_api').replace(/\/+$/, "");
 }
 
 async function getIdsFromKitsu(kitsuId, season, episode) {

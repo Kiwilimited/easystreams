@@ -28,9 +28,9 @@ if (!global.fetch) {
 const https = require('https');
 const http = require('http');
 
-const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-const VERBOSE_LOGS = process.env.VERBOSE_LOGS === '1' || (!IS_PRODUCTION && process.env.VERBOSE_LOGS !== '0');
-const QUIET_PROVIDER_LOGS = process.env.QUIET_PROVIDER_LOGS !== '0';
+const IS_PRODUCTION = false;
+const VERBOSE_LOGS = true;
+const QUIET_PROVIDER_LOGS = true;
 
 const PROVIDER_LOG_PREFIXES = [
     '[GuardaHD]',
@@ -80,10 +80,35 @@ const express = require('express');
 const app = express();
 const path = require('path');
 const { getProviderUrl } = require('./src/provider_urls.js');
+const ENC_CF_WORKER =
+    typeof process !== 'undefined' &&
+    process &&
+    process.env &&
+    typeof process.env.ENC_CF_WORKER === 'string'
+        ? process.env.ENC_CF_WORKER
+        : '';
 
-// Set global proxy from env for all providers to use
-if (process.env.CF_PROXY_URL) {
-    global.CF_PROXY_URL = process.env.CF_PROXY_URL;
+function decodeBase64UrlSafe(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+
+    const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+    const base64 = normalized + padding;
+
+    try {
+        return Buffer.from(base64, 'base64').toString('utf8');
+    } catch {
+        return '';
+    }
+}
+
+// Set global proxy from encoded CF worker value.
+const decodedCfWorker = decodeBase64UrlSafe(ENC_CF_WORKER).trim();
+if (/^https?:\/\//i.test(decodedCfWorker)) {
+    global.ENC_CF_WORKER = ENC_CF_WORKER;
+    global.CF_PROXY_URL = decodedCfWorker.replace(/\/+$/, '');
     logInfo(`[Proxy] Global CF_PROXY_URL set: ${global.CF_PROXY_URL}`);
 }
 
@@ -116,32 +141,23 @@ app.use((req, res, next) => {
 });
 
 // Global timeout configuration
-const FETCH_TIMEOUT = Number.parseInt(process.env.FETCH_TIMEOUT_MS || '10000', 10) || 10000;
-const STREAM_RESPONSE_TIMEOUT = Number.parseInt(process.env.STREAM_RESPONSE_TIMEOUT_MS || '7000', 10) || 7000;
+const FETCH_TIMEOUT = 10000;
+const STREAM_RESPONSE_TIMEOUT = 7000;
 const DEFAULT_PROVIDER_TIMEOUT = Math.max(1500, STREAM_RESPONSE_TIMEOUT - 500);
-const PROVIDER_TIMEOUT = Math.min(
-    Number.parseInt(process.env.PROVIDER_TIMEOUT_MS || String(DEFAULT_PROVIDER_TIMEOUT), 10) || DEFAULT_PROVIDER_TIMEOUT,
-    STREAM_RESPONSE_TIMEOUT
-);
-const ANIME_PROVIDER_TIMEOUT = Number.parseInt(process.env.ANIME_PROVIDER_TIMEOUT_MS || '10000', 10) || 10000;
-const ANIME_STREAM_RESPONSE_TIMEOUT = Number.parseInt(
-    process.env.ANIME_STREAM_RESPONSE_TIMEOUT_MS || String(Math.max(STREAM_RESPONSE_TIMEOUT, ANIME_PROVIDER_TIMEOUT + 1500)),
-    10
-) || Math.max(STREAM_RESPONSE_TIMEOUT, ANIME_PROVIDER_TIMEOUT + 1500);
-const ENABLE_SERIES_MAPPING_LOOKUP = process.env.ENABLE_SERIES_MAPPING_LOOKUP === '1';
-const ENABLE_ANIME_FALLBACK_ON_SERIES = process.env.ENABLE_ANIME_FALLBACK_ON_SERIES === '1';
-const ENABLE_ANIME_FALLBACK_ON_MOVIES = process.env.ENABLE_ANIME_FALLBACK_ON_MOVIES === '1';
-const FORCE_ALL_PROVIDERS = process.env.FORCE_ALL_PROVIDERS === '1';
-const ENABLE_TMDB_ANIME_DETECTION = process.env.ENABLE_TMDB_ANIME_DETECTION !== '0';
-const TMDB_ANIME_DETECTION_TIMEOUT = Number.parseInt(process.env.TMDB_ANIME_DETECTION_TIMEOUT_MS || '1200', 10) || 1200;
-const TMDB_ANIME_CACHE_TTL = Number.parseInt(process.env.TMDB_ANIME_CACHE_TTL_MS || '21600000', 10) || 21600000;
-const ADDON_CACHE_ENABLED = process.env.ADDON_CACHE_ENABLED !== '0';
-const STREAM_CACHE_TTL = Number.parseInt(process.env.STREAM_CACHE_TTL_MS || '10000', 10) || 10000;
-const STREAM_CACHE_MAX_SIZE = Number.parseInt(process.env.STREAM_CACHE_MAX_SIZE || '50000', 10) || 50000;
-const STREAM_CACHE_MAX_BYTES = Number.parseInt(
-    process.env.STREAM_CACHE_MAX_BYTES || String(100 * 1024 * 1024),
-    10
-) || (100 * 1024 * 1024);
+const PROVIDER_TIMEOUT = Math.min(DEFAULT_PROVIDER_TIMEOUT, STREAM_RESPONSE_TIMEOUT);
+const ANIME_PROVIDER_TIMEOUT = 10000;
+const ANIME_STREAM_RESPONSE_TIMEOUT = Math.max(STREAM_RESPONSE_TIMEOUT, ANIME_PROVIDER_TIMEOUT + 1500);
+const ENABLE_SERIES_MAPPING_LOOKUP = false;
+const ENABLE_ANIME_FALLBACK_ON_SERIES = false;
+const ENABLE_ANIME_FALLBACK_ON_MOVIES = false;
+const FORCE_ALL_PROVIDERS = false;
+const ENABLE_TMDB_ANIME_DETECTION = true;
+const TMDB_ANIME_DETECTION_TIMEOUT = 1200;
+const TMDB_ANIME_CACHE_TTL = 21600000;
+const ADDON_CACHE_ENABLED = true;
+const STREAM_CACHE_TTL = 10000;
+const STREAM_CACHE_MAX_SIZE = 50000;
+const STREAM_CACHE_MAX_BYTES = 100 * 1024 * 1024;
 
 const streamCache = new Map();
 const inFlightStreamRequests = new Map();
@@ -238,18 +254,15 @@ global.fetch = async function (url, options = {}) {
     }
 };
 
-const ADDON_MAPPING_CACHE_TTL = Number.parseInt(process.env.ADDON_MAPPING_CACHE_TTL_MS || '10800000', 10) || 10800000;
+const ADDON_MAPPING_CACHE_TTL = 10800000;
 
 function getMappingApiUrl() {
-    return getProviderUrl(
-        'mapping_api',
-        ['MAPPING_API_URL']
-    );
+    return getProviderUrl('mapping_api');
 }
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
-const CANONICAL_RESOLVE_TIMEOUT = Number.parseInt(process.env.CANONICAL_RESOLVE_TIMEOUT_MS || '1500', 10) || 1500;
-const CANONICAL_REQUEST_CACHE_MAX_SIZE = Number.parseInt(process.env.CANONICAL_REQUEST_CACHE_MAX_SIZE || '50000', 10) || 50000;
-const TMDB_SEASON_COUNTS_CACHE_TTL = Number.parseInt(process.env.TMDB_SEASON_COUNTS_CACHE_TTL_MS || '21600000', 10) || 21600000;
+const CANONICAL_RESOLVE_TIMEOUT = 1500;
+const CANONICAL_REQUEST_CACHE_MAX_SIZE = 50000;
+const TMDB_SEASON_COUNTS_CACHE_TTL = 21600000;
 
 const streamCacheAliases = new Map();
 const canonicalRequestCache = new Map();
