@@ -655,12 +655,13 @@ function getStreams(id, type, season, episode, providerContext = null) {
               };
             }
           } else if (link.includes("supervideo")) {
-            const streamUrl = yield extractSuperVideo(link);
+            const extracted = yield extractSuperVideo(link);
             playerName = "SuperVideo";
-            if (streamUrl) {
+            if (extracted && extracted.url) {
+              const streamUrl = extracted.url;
               let quality = "HD";
               if (streamUrl.includes('.m3u8')) {
-                const detected = yield checkQualityFromPlaylist(streamUrl);
+                const detected = yield checkQualityFromPlaylist(streamUrl, extracted.headers || {});
                 if (detected) quality = detected;
               } else {
                 const lowerUrl = streamUrl.toLowerCase();
@@ -675,6 +676,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
 
               return {
                 url: streamUrl,
+                headers: extracted.headers,
                 name: `Guardaserie - ${playerName}`,
                 title: displayName,
                 quality: normalizedQuality,

@@ -38,7 +38,19 @@ async function extractSuperVideo(url, refererBase = null) {
       if (fileMatch) {
         let streamUrl = fileMatch[1];
         if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
-        return streamUrl;
+        let playbackReferer = refererBase;
+        try {
+          playbackReferer = new URL(streamUrl).origin + "/";
+        } catch (_) {
+          playbackReferer = refererBase || "https://supervideo.tv/";
+        }
+
+        return {
+          url: streamUrl,
+          headers: {
+            "Referer": playbackReferer
+          }
+        };
       }
     }
     return null;

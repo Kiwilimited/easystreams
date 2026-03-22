@@ -233,12 +233,12 @@ function getStreams(id, type, season, episode) {
           } else if (streamUrl.includes("supervideo")) {
             console.log(`[GuardaHD] Attempting SuperVideo extraction for ${streamUrl}`);
             const extracted = await extractSuperVideo(streamUrl);
-            if (extracted) {
+            if (extracted && extracted.url) {
               let quality = "HD";
-              const playlistQuality = await checkQualityFromPlaylist(extracted);
+              const playlistQuality = await checkQualityFromPlaylist(extracted.url, extracted.headers || {});
               if (playlistQuality) quality = playlistQuality;
               else {
-                const urlQuality = getQualityFromUrl(extracted);
+                const urlQuality = getQualityFromUrl(extracted.url);
                 if (urlQuality) quality = urlQuality;
               }
               
@@ -247,7 +247,8 @@ function getStreams(id, type, season, episode) {
               streams.push({
                 name: `GuardaHD - SuperVideo`,
                 title: displayName,
-                url: extracted,
+                url: extracted.url,
+                headers: extracted.headers,
                 quality: normalizedQuality,
                 type: "direct"
               });

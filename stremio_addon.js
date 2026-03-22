@@ -1388,7 +1388,7 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
                         url: s.url,
                         behaviorHints: {
                             ...(s.behaviorHints || {}),
-                            notWebReady: shouldMarkStreamAsNotWebReady(s),
+                            notWebReady: false,
                             bingeGroup: name // Consistent grouping by provider name
                         },
                         language: s.language

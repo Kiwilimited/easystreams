@@ -378,7 +378,18 @@ var require_supervideo = __commonJS({
             if (fileMatch) {
               let streamUrl = fileMatch[1];
               if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
-              return streamUrl;
+              let playbackReferer = refererBase;
+              try {
+                playbackReferer = new URL(streamUrl).origin + "/";
+              } catch (_) {
+                playbackReferer = refererBase || "https://supervideo.tv/";
+              }
+              return {
+                url: streamUrl,
+                headers: {
+                  "Referer": playbackReferer
+                }
+              };
             }
           }
           return null;
@@ -7732,19 +7743,20 @@ function getStreams(id, type, season, episode) {
           } else if (streamUrl.includes("supervideo")) {
             console.log(`[GuardaHD] Attempting SuperVideo extraction for ${streamUrl}`);
             const extracted = yield extractSuperVideo(streamUrl);
-            if (extracted) {
+            if (extracted && extracted.url) {
               let quality = "HD";
-              const playlistQuality = yield checkQualityFromPlaylist(extracted);
+              const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
               if (playlistQuality) quality = playlistQuality;
               else {
-                const urlQuality = getQualityFromUrl(extracted);
+                const urlQuality = getQualityFromUrl(extracted.url);
                 if (urlQuality) quality = urlQuality;
               }
               const normalizedQuality = getQualityFromName(quality);
               streams.push({
                 name: `GuardaHD - SuperVideo`,
                 title: displayName,
-                url: extracted,
+                url: extracted.url,
+                headers: extracted.headers,
                 quality: normalizedQuality,
                 type: "direct"
               });

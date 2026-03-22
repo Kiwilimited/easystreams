@@ -379,7 +379,18 @@ var require_supervideo = __commonJS({
             if (fileMatch) {
               let streamUrl = fileMatch[1];
               if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
-              return streamUrl;
+              let playbackReferer = refererBase;
+              try {
+                playbackReferer = new URL(streamUrl).origin + "/";
+              } catch (_) {
+                playbackReferer = refererBase || "https://supervideo.tv/";
+              }
+              return {
+                url: streamUrl,
+                headers: {
+                  "Referer": playbackReferer
+                }
+              };
             }
           }
           return null;
@@ -8102,12 +8113,13 @@ var require_guardaserie = __commonJS({
                   };
                 }
               } else if (link.includes("supervideo")) {
-                const streamUrl2 = yield extractSuperVideo(link);
+                const extracted = yield extractSuperVideo(link);
                 playerName = "SuperVideo";
-                if (streamUrl2) {
+                if (extracted && extracted.url) {
+                  const streamUrl2 = extracted.url;
                   let quality = "HD";
                   if (streamUrl2.includes(".m3u8")) {
-                    const detected = yield checkQualityFromPlaylist(streamUrl2);
+                    const detected = yield checkQualityFromPlaylist(streamUrl2, extracted.headers || {});
                     if (detected) quality = detected;
                   } else {
                     const lowerUrl = streamUrl2.toLowerCase();
@@ -8120,6 +8132,7 @@ var require_guardaserie = __commonJS({
                   const normalizedQuality = getQualityFromName(quality);
                   return {
                     url: streamUrl2,
+                    headers: extracted.headers,
                     name: `Guardaserie - ${playerName}`,
                     title: displayName,
                     quality: normalizedQuality,
