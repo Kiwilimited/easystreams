@@ -32,6 +32,7 @@ const caches = {
 };
 
 const animeUnityCookies = new Map();
+let animeUnityCsrfToken = "";
 let animeUnitySessionWarmupPromise = null;
 
 function getCached(map, key) {
@@ -172,6 +173,16 @@ function storeAnimeUnityCookies(response) {
   }
 }
 
+function storeAnimeUnityCsrfToken(html) {
+  const match = String(html || "").match(
+    /<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)["']/i
+  );
+  const token = String(match?.[1] || "").trim();
+  if (token) {
+    animeUnityCsrfToken = token;
+  }
+}
+
 function hasHeader(headers, key) {
   const target = String(key || "").trim().toLowerCase();
   if (!target) return false;
@@ -210,6 +221,9 @@ function buildAnimeUnityHeaders(url, headers = {}, as = "text") {
     .trim()
     .toLowerCase();
   if (requestedWith === "xmlhttprequest") {
+    if (animeUnityCsrfToken && !hasHeader(finalHeaders, "x-csrf-token")) {
+      finalHeaders["x-csrf-token"] = animeUnityCsrfToken;
+    }
     if (!hasHeader(finalHeaders, "origin")) {
       finalHeaders.origin = getUnityBaseUrl();
     }
@@ -430,7 +444,8 @@ async function warmAnimeUnitySession(
     );
 
     storeAnimeUnityCookies(response);
-    await response.text();
+    const html = await response.text();
+    storeAnimeUnityCsrfToken(html);
     return response.ok;
   })();
 
@@ -544,6 +559,9 @@ async function fetchResource(url, options = {}) {
     });
 
     const payload = as === "json" ? await response.json() : await response.text();
+    if (as !== "json" && isAnimeUnityUrl(url)) {
+      storeAnimeUnityCsrfToken(payload);
+    }
     if (ttlMs > 0) setCached(caches.http, key, payload, ttlMs);
     return payload;
   })();
@@ -1160,18 +1178,21 @@ async function extractStreamsFromAnimePath(animePath, requestedEpisode) {
     }
   }
 
-  if (selected.scwsId && selected.episodeId) {
+  if (selected.scwsId && (selected.embedUrl || selected.episodeId)) {
     try {
-      const embedPayload = await fetchResource(`${getUnityBaseUrl()}/embed-url/${selected.episodeId}`, {
-        ttlMs: TTL.streamPage,
-        cacheKey: `embed-url:${selected.episodeId}`,
-        timeoutMs: FETCH_TIMEOUT,
-        headers: {
-          referer: animeUrl,
-          "x-requested-with": "XMLHttpRequest"
-        }
-      });
-      const embedUrl = toAbsoluteUrl(String(embedPayload || "").trim());
+      let embedUrl = toAbsoluteUrl(selected.embedUrl || null);
+      if (!embedUrl && selected.episodeId) {
+        const embedPayload = await fetchResource(`${getUnityBaseUrl()}/embed-url/${selected.episodeId}`, {
+          ttlMs: TTL.streamPage,
+          cacheKey: `embed-url:${selected.episodeId}`,
+          timeoutMs: FETCH_TIMEOUT,
+          headers: {
+            referer: animeUrl,
+            "x-requested-with": "XMLHttpRequest"
+          }
+        });
+        embedUrl = toAbsoluteUrl(String(embedPayload || "").trim());
+      }
       if (embedUrl && /^https?:\/\//i.test(embedUrl)) {
         const vixStreams = await extractVixCloud(embedUrl);
         if (Array.isArray(vixStreams) && vixStreams.length > 0) {

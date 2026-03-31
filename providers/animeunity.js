@@ -7424,6 +7424,7 @@ var caches = {
   inflight: /* @__PURE__ */ new Map()
 };
 var animeUnityCookies = /* @__PURE__ */ new Map();
+var animeUnityCsrfToken = "";
 var animeUnitySessionWarmupPromise = null;
 function getCached(map, key) {
   const entry = map.get(key);
@@ -7540,6 +7541,15 @@ function storeAnimeUnityCookies(response) {
     animeUnityCookies.set(name, cookieValue);
   }
 }
+function storeAnimeUnityCsrfToken(html) {
+  const match = String(html || "").match(
+    /<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)["']/i
+  );
+  const token = String((match == null ? void 0 : match[1]) || "").trim();
+  if (token) {
+    animeUnityCsrfToken = token;
+  }
+}
 function hasHeader(headers, key) {
   const target = String(key || "").trim().toLowerCase();
   if (!target) return false;
@@ -7567,6 +7577,9 @@ function buildAnimeUnityHeaders(url, headers = {}, as = "text") {
   }
   const requestedWith = String(getHeaderValue(finalHeaders, "x-requested-with") || "").trim().toLowerCase();
   if (requestedWith === "xmlhttprequest") {
+    if (animeUnityCsrfToken && !hasHeader(finalHeaders, "x-csrf-token")) {
+      finalHeaders["x-csrf-token"] = animeUnityCsrfToken;
+    }
     if (!hasHeader(finalHeaders, "origin")) {
       finalHeaders.origin = getUnityBaseUrl();
     }
@@ -7740,7 +7753,8 @@ function warmAnimeUnitySession() {
         timeoutMs
       );
       storeAnimeUnityCookies(response);
-      yield response.text();
+      const html = yield response.text();
+      storeAnimeUnityCsrfToken(html);
       return response.ok;
     }))();
     try {
@@ -7839,6 +7853,9 @@ function fetchResource(_0) {
         timeoutMs
       });
       const payload = as === "json" ? yield response.json() : yield response.text();
+      if (as !== "json" && isAnimeUnityUrl(url)) {
+        storeAnimeUnityCsrfToken(payload);
+      }
       if (ttlMs > 0) setCached(caches.http, key, payload, ttlMs);
       return payload;
     }))();
@@ -8342,18 +8359,21 @@ function extractStreamsFromAnimePath(animePath, requestedEpisode) {
         });
       }
     }
-    if (selected.scwsId && selected.episodeId) {
+    if (selected.scwsId && (selected.embedUrl || selected.episodeId)) {
       try {
-        const embedPayload = yield fetchResource(`${getUnityBaseUrl()}/embed-url/${selected.episodeId}`, {
-          ttlMs: TTL.streamPage,
-          cacheKey: `embed-url:${selected.episodeId}`,
-          timeoutMs: FETCH_TIMEOUT,
-          headers: {
-            referer: animeUrl,
-            "x-requested-with": "XMLHttpRequest"
-          }
-        });
-        const embedUrl2 = toAbsoluteUrl(String(embedPayload || "").trim());
+        let embedUrl2 = toAbsoluteUrl(selected.embedUrl || null);
+        if (!embedUrl2 && selected.episodeId) {
+          const embedPayload = yield fetchResource(`${getUnityBaseUrl()}/embed-url/${selected.episodeId}`, {
+            ttlMs: TTL.streamPage,
+            cacheKey: `embed-url:${selected.episodeId}`,
+            timeoutMs: FETCH_TIMEOUT,
+            headers: {
+              referer: animeUrl,
+              "x-requested-with": "XMLHttpRequest"
+            }
+          });
+          embedUrl2 = toAbsoluteUrl(String(embedPayload || "").trim());
+        }
         if (embedUrl2 && /^https?:\/\//i.test(embedUrl2)) {
           const vixStreams = yield extractVixCloud(embedUrl2);
           if (Array.isArray(vixStreams) && vixStreams.length > 0) {

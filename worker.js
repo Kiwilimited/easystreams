@@ -33,6 +33,7 @@ function copyRequestHeaders(request, target) {
     "range",
     "content-type",
     "x-requested-with",
+    "x-csrf-token",
     "sec-fetch-dest",
     "sec-fetch-mode",
     "sec-fetch-site",
