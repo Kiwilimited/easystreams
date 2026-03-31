@@ -470,6 +470,9 @@ async function requestAnimeUnityResponse(url, options = {}) {
     body,
     redirect: "follow"
   };
+  const attemptStatuses = [];
+  let directWarmupError = null;
+  let proxyWarmupError = null;
 
   const doRequest = async (targetUrl, requestHeaders, { storeCookies = false } = {}) => {
     const response = await fetchWithTimeout(
@@ -490,42 +493,63 @@ async function requestAnimeUnityResponse(url, options = {}) {
 
   const directHeaders = buildAnimeUnityHeaders(url, headers, as);
   let response = await doRequest(url, directHeaders, { storeCookies: true });
+  attemptStatuses.push(`direct=${response.status}`);
   if (response.ok) return response;
 
   if (!isAnimeUnityUrl(url) || response.status !== 403) {
     throw new Error(`HTTP ${response.status} ${response.statusText} for ${url}`);
   }
 
-  console.warn(`[AnimeUnity] 403 received, retrying with fresh session: ${url}`);
-
   try {
     await warmAnimeUnitySession(timeoutMs);
   } catch (error) {
-    console.warn(`[AnimeUnity] session warmup failed: ${error.message}`);
+    directWarmupError = error.message;
   }
 
   const retryHeaders = buildAnimeUnityHeaders(url, headers, as);
   response = await doRequest(url, retryHeaders, { storeCookies: true });
+  attemptStatuses.push(`session=${response.status}`);
   if (response.ok) return response;
 
   const proxiedUrl = getProxiedUrl(url);
   if (response.status === 403 && proxiedUrl && proxiedUrl !== url) {
-    console.warn(`[AnimeUnity] 403 persisted, retrying through proxy: ${url}`);
     const proxiedBaseUrl = getProxiedUrl(getUnityBaseUrl());
     if (proxiedBaseUrl && proxiedBaseUrl !== getUnityBaseUrl()) {
       try {
         await warmAnimeUnitySession(timeoutMs, proxiedBaseUrl, getUnityBaseUrl());
       } catch (error) {
-        console.warn(`[AnimeUnity] proxy session warmup failed: ${error.message}`);
+        proxyWarmupError = error.message;
       }
     }
     const proxiedHeaders = buildAnimeUnityHeaders(url, headers, as);
     const proxiedResponse = await doRequest(proxiedUrl, proxiedHeaders, { storeCookies: true });
+    attemptStatuses.push(`proxy=${proxiedResponse.status}`);
     if (proxiedResponse.ok) return proxiedResponse;
-    throw new Error(`HTTP ${proxiedResponse.status} ${proxiedResponse.statusText} for ${url}`);
+    const debugSuffix = [
+      attemptStatuses.join(", "),
+      directWarmupError ? `directWarmup=${directWarmupError}` : "",
+      proxyWarmupError ? `proxyWarmup=${proxyWarmupError}` : ""
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    throw new Error(
+      `HTTP ${proxiedResponse.status} ${proxiedResponse.statusText} for ${url}${
+        debugSuffix ? ` (${debugSuffix})` : ""
+      }`
+    );
   }
 
-  throw new Error(`HTTP ${response.status} ${response.statusText} for ${url}`);
+  const debugSuffix = [
+    attemptStatuses.join(", "),
+    directWarmupError ? `directWarmup=${directWarmupError}` : ""
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  throw new Error(
+    `HTTP ${response.status} ${response.statusText} for ${url}${
+      debugSuffix ? ` (${debugSuffix})` : ""
+    }`
+  );
 }
 
 async function fetchResource(url, options = {}) {
