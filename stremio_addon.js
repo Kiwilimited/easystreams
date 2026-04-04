@@ -1104,7 +1104,6 @@ async function resolveCanonicalStreamCacheKey(type, providerId, season, episode,
 // Import providers
 const providers = {
     guardahd: require('./src/guardahd/index.js'),
-    guardaserie: require('./src/guardaserie/index.js'),
     guardoserie: require('./src/guardoserie/index.js'),
     animeunity: require('./src/animeunity/index.js'),
     animeworld: require('./src/animeworld/index.js'),
@@ -1178,17 +1177,17 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
             plan = ['streamingcommunity', 'guardahd', 'guardoserie'];
         }
     } else if (normalizedType === 'anime') {
-        plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
+        plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
     } else {
         if (isImdbRequest) {
             plan = likelyAnime
-                ? ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie']
-                : ['streamingcommunity', 'guardaserie', 'guardoserie'];
+                ? ['animeunity', 'animeworld', 'animesaturn', 'guardoserie']
+                : ['streamingcommunity', 'guardoserie'];
         } else if (likelyAnime || ENABLE_ANIME_FALLBACK_ON_SERIES) {
-            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
+            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
         } else {
             // Keep anime providers in the series plan too: they self-filter via mapping API.
-            plan = ['streamingcommunity', 'guardaserie', 'guardoserie', 'animeunity', 'animeworld', 'animesaturn'];
+            plan = ['streamingcommunity', 'guardoserie', 'animeunity', 'animeworld', 'animesaturn'];
         }
     }
 

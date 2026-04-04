@@ -7182,7 +7182,7 @@ var require_loadm = __commonJS({
   "src/extractors/loadm.js"(exports2, module2) {
     var CryptoJS = require_crypto_js();
     var { USER_AGENT } = require_common();
-    function extractLoadm(playerUrl, referer = "guardoserie.horse") {
+    function extractLoadm(playerUrl, referer = "guardoserie.tattoo") {
       return __async(this, null, function* () {
         try {
           if (!playerUrl.includes("#")) return [];
@@ -7405,7 +7405,7 @@ var require_guardoserie = __commonJS({
     var { formatStream } = require_formatter();
     var { checkQualityFromPlaylist } = require_quality_helper();
     function getGuardoserieBaseUrl() {
-      return "https://guardoserie.rest";
+      return "https://guardoserie.tattoo";
     }
     var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
     function getMappingApiUrl() {
@@ -7939,7 +7939,7 @@ var require_guardoserie = __commonJS({
           const streamPromises = playerLinks.map((playerLink) => __async(null, null, function* () {
             try {
               if (playerLink.includes("loadm")) {
-                const domain = "guardoserie.horse";
+                const domain = "guardoserie.tattoo";
                 const extracted = yield extractLoadm(playerLink, domain);
                 const localStreams = [];
                 for (const s of extracted || []) {

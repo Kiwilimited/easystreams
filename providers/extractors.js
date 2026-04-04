@@ -7178,7 +7178,7 @@ var require_loadm = __commonJS({
   "src/extractors/loadm.js"(exports2, module2) {
     var CryptoJS = require_crypto_js();
     var { USER_AGENT: USER_AGENT2 } = require_common();
-    function extractLoadm2(playerUrl, referer = "guardoserie.horse") {
+    function extractLoadm2(playerUrl, referer = "guardoserie.tattoo") {
       return __async(this, null, function* () {
         try {
           if (!playerUrl.includes("#")) return [];

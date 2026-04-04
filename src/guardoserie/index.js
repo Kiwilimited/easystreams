@@ -3,7 +3,7 @@ const { extractLoadm, extractUqload, extractDropLoad, extractMixDrop, extractSup
 const { formatStream } = require('../formatter');
 const { checkQualityFromPlaylist } = require('../quality_helper');
 function getGuardoserieBaseUrl() {
-    return 'https://guardoserie.rest';
+    return 'https://guardoserie.tattoo';
 }
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 function getMappingApiUrl() {
@@ -668,7 +668,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         const streamPromises = playerLinks.map(async (playerLink) => {
             try {
                 if (playerLink.includes('loadm')) {
-                    const domain = 'guardoserie.horse';
+                    const domain = 'guardoserie.tattoo';
                     const extracted = await extractLoadm(playerLink, domain);
                     const localStreams = [];
                     for (const s of (extracted || [])) {
