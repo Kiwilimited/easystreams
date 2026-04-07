@@ -7353,12 +7353,6 @@ var require_formatter = __commonJS({
       }
       finalHeaders = normalizePlaybackHeaders(finalHeaders);
       const isStreamingCommunityProvider = String(providerName || "").toLowerCase() === "streamingcommunity" || String((stream == null ? void 0 : stream.name) || "").toLowerCase().includes("streamingcommunity");
-      if (isStreamingCommunityProvider) {
-        finalHeaders = void 0;
-        delete behaviorHints.proxyHeaders;
-        delete behaviorHints.headers;
-        delete behaviorHints.notWebReady;
-      }
       if (finalHeaders) {
         behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
         behaviorHints.proxyHeaders.request = finalHeaders;
@@ -8503,7 +8497,7 @@ var require_streamingcommunity = __commonJS({
               quality: normalizedQuality,
               type: "direct",
               behaviorHints: {
-                notWebReady: false
+                notWebReady: true
               }
             };
             return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
