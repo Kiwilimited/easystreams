@@ -1108,7 +1108,7 @@ const providers = {
     animeunity: require('./src/animeunity/index.js'),
     animeworld: require('./src/animeworld/index.js'),
     animesaturn: require('./src/animesaturn/index.js'),
-    streamingcommunity: require('./src/streamingcommunity/index.js')
+    // streamingcommunity: require('./src/streamingcommunity/index.js')
 };
 
 function isLikelyAnimeRequest(type, providerId, requestContext) {
