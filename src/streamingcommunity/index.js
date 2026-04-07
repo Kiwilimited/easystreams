@@ -248,6 +248,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         name: `StreamingCommunity`,
         title: finalDisplayName,
         url: streamUrl,
+        easyProxySourceUrl: url,
         quality: normalizedQuality,
         type: "direct",
         behaviorHints: {
