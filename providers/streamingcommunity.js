@@ -125,6 +125,12 @@ var require_formatter = __commonJS({
       }
       finalHeaders = normalizePlaybackHeaders(finalHeaders);
       const isStreamingCommunityProvider = String(providerName || "").toLowerCase() === "streamingcommunity" || String((stream == null ? void 0 : stream.name) || "").toLowerCase().includes("streamingcommunity");
+      if (isStreamingCommunityProvider) {
+        finalHeaders = void 0;
+        delete behaviorHints.proxyHeaders;
+        delete behaviorHints.headers;
+        delete behaviorHints.notWebReady;
+      }
       if (finalHeaders) {
         behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
         behaviorHints.proxyHeaders.request = finalHeaders;
@@ -295,13 +301,13 @@ function safeRequire(modulePath) {
   }
 }
 var guardahd = safeRequire("../guardahd/index");
+var guardaserie = safeRequire("../guardaserie/index");
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 function getCommonHeaders() {
   return {
     "User-Agent": USER_AGENT,
     "Referer": `${getStreamingCommunityBaseUrl()}/`,
-    "Origin": getStreamingCommunityBaseUrl(),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
     "Sec-Fetch-Dest": "document",
@@ -395,6 +401,14 @@ function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
         })
       );
     }
+    if (normalizedType === "tv" && guardaserie && typeof guardaserie.getStreams === "function") {
+      checks.push(
+        guardaserie.getStreams(id, normalizedType, season, episode, providerContext).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
+          console.warn("[StreamingCommunity] Guardaserie fallback check failed:", e);
+          return false;
+        })
+      );
+    }
     if (checks.length === 0) return false;
     const results = yield Promise.all(checks);
     return results.some(Boolean);
@@ -466,9 +480,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
         console.log(`[StreamingCommunity] Found stream URL: ${streamUrl}`);
         let quality = "720p";
         try {
-          const playlistHeaders = __spreadProps(__spreadValues({}, commonHeaders), { "Referer": url });
           const playlistResponse = yield fetch(streamUrl, {
-            headers: playlistHeaders
+            headers: commonHeaders
           });
           if (playlistResponse.ok) {
             const playlistText = yield playlistResponse.text();
@@ -479,13 +492,13 @@ function getStreams(id, type, season, episode, providerContext = null) {
             if (hasItalian || originalLanguageItalian) {
               console.log(`[StreamingCommunity] Verified: Has Italian audio or original language is Italian.`);
             } else {
-              console.log(`[StreamingCommunity] No Italian audio found in playlist and original language is not Italian. Checking fallback providers.`);
+              console.log(`[StreamingCommunity] No Italian audio found in playlist and original language is not Italian. Checking GuardaHD/Guardaserie.`);
               const fallbackOk = yield hasGuardaFallbackResults(id, normalizedType, resolvedSeason, episode, providerContext);
               if (!fallbackOk) {
-                console.log(`[StreamingCommunity] Skipping non-Italian stream: no fallback provider results.`);
+                console.log(`[StreamingCommunity] Skipping non-Italian stream: no GuardaHD/Guardaserie results.`);
                 return [];
               }
-              console.log(`[StreamingCommunity] Allowing non-Italian stream because a fallback provider returned results.`);
+              console.log(`[StreamingCommunity] Allowing non-Italian stream because GuardaHD/Guardaserie returned results.`);
             }
           } else {
             console.warn(`[StreamingCommunity] Playlist check failed (${playlistResponse.status}), skipping verification.`);
@@ -498,11 +511,10 @@ function getStreams(id, type, season, episode, providerContext = null) {
           name: `StreamingCommunity`,
           title: finalDisplayName,
           url: streamUrl,
-          headers: __spreadProps(__spreadValues({}, commonHeaders), { "Referer": url }),
           quality: normalizedQuality,
           type: "direct",
           behaviorHints: {
-            notWebReady: true
+            notWebReady: false
           }
         };
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);

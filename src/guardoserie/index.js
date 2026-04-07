@@ -668,7 +668,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         const streamPromises = playerLinks.map(async (playerLink) => {
             try {
                 if (playerLink.includes('loadm')) {
-                    const domain = 'guardoserie.tattoo';
+                    const domain = 'guardoserie.horse';
                     const extracted = await extractLoadm(playerLink, domain);
                     const localStreams = [];
                     for (const s of (extracted || [])) {

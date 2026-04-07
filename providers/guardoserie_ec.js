@@ -7182,7 +7182,7 @@ var require_loadm = __commonJS({
   "src/extractors/loadm.js"(exports2, module2) {
     var CryptoJS = require_crypto_js();
     var { USER_AGENT } = require_common();
-    function extractLoadm(playerUrl, referer = "guardoserie.tattoo") {
+    function extractLoadm(playerUrl, referer = "guardoserie.horse") {
       return __async(this, null, function* () {
         try {
           if (!playerUrl.includes("#")) return [];
@@ -7354,6 +7354,12 @@ var require_formatter = __commonJS({
       }
       finalHeaders = normalizePlaybackHeaders(finalHeaders);
       const isStreamingCommunityProvider = String(providerName || "").toLowerCase() === "streamingcommunity" || String((stream == null ? void 0 : stream.name) || "").toLowerCase().includes("streamingcommunity");
+      if (isStreamingCommunityProvider) {
+        finalHeaders = void 0;
+        delete behaviorHints.proxyHeaders;
+        delete behaviorHints.headers;
+        delete behaviorHints.notWebReady;
+      }
       if (finalHeaders) {
         behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
         behaviorHints.proxyHeaders.request = finalHeaders;
@@ -7933,7 +7939,7 @@ var require_guardoserie = __commonJS({
           const streamPromises = playerLinks.map((playerLink) => __async(null, null, function* () {
             try {
               if (playerLink.includes("loadm")) {
-                const domain = "guardoserie.tattoo";
+                const domain = "guardoserie.horse";
                 const extracted = yield extractLoadm(playerLink, domain);
                 const localStreams = [];
                 for (const s of extracted || []) {

@@ -14,6 +14,7 @@ function safeRequire(modulePath) {
 }
 
 const guardahd = safeRequire('../guardahd/index');
+const guardaserie = safeRequire('../guardaserie/index');
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
@@ -21,7 +22,6 @@ function getCommonHeaders() {
   return {
     "User-Agent": USER_AGENT,
     "Referer": `${getStreamingCommunityBaseUrl()}/`,
-    "Origin": getStreamingCommunityBaseUrl(),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
     "Sec-Fetch-Dest": "document",
@@ -119,6 +119,17 @@ async function hasGuardaFallbackResults(id, type, season, episode, providerConte
     );
   }
 
+  if (normalizedType === "tv" && guardaserie && typeof guardaserie.getStreams === "function") {
+    checks.push(
+      guardaserie.getStreams(id, normalizedType, season, episode, providerContext)
+        .then((streams) => Array.isArray(streams) && streams.length > 0)
+        .catch((e) => {
+          console.warn("[StreamingCommunity] Guardaserie fallback check failed:", e);
+          return false;
+        })
+    );
+  }
+
   if (checks.length === 0) return false;
   const results = await Promise.all(checks);
   return results.some(Boolean);
@@ -199,9 +210,8 @@ async function getStreams(id, type, season, episode, providerContext = null) {
 
       let quality = "720p";
       try {
-        const playlistHeaders = { ...commonHeaders, "Referer": url };
         const playlistResponse = await fetch(streamUrl, {
-          headers: playlistHeaders
+          headers: commonHeaders
         });
         if (playlistResponse.ok) {
           const playlistText = await playlistResponse.text();
@@ -218,13 +228,13 @@ async function getStreams(id, type, season, episode, providerContext = null) {
           if (hasItalian || originalLanguageItalian) {
             console.log(`[StreamingCommunity] Verified: Has Italian audio or original language is Italian.`);
           } else {
-            console.log(`[StreamingCommunity] No Italian audio found in playlist and original language is not Italian. Checking fallback providers.`);
+            console.log(`[StreamingCommunity] No Italian audio found in playlist and original language is not Italian. Checking GuardaHD/Guardaserie.`);
             const fallbackOk = await hasGuardaFallbackResults(id, normalizedType, resolvedSeason, episode, providerContext);
             if (!fallbackOk) {
-              console.log(`[StreamingCommunity] Skipping non-Italian stream: no fallback provider results.`);
+              console.log(`[StreamingCommunity] Skipping non-Italian stream: no GuardaHD/Guardaserie results.`);
               return [];
             }
-            console.log(`[StreamingCommunity] Allowing non-Italian stream because a fallback provider returned results.`);
+            console.log(`[StreamingCommunity] Allowing non-Italian stream because GuardaHD/Guardaserie returned results.`);
           }
         } else {
           console.warn(`[StreamingCommunity] Playlist check failed (${playlistResponse.status}), skipping verification.`);
@@ -238,11 +248,10 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         name: `StreamingCommunity`,
         title: finalDisplayName,
         url: streamUrl,
-        headers: { ...commonHeaders, "Referer": url },
         quality: normalizedQuality,
         type: "direct",
         behaviorHints: {
-          notWebReady: true
+          notWebReady: false
         }
       };
 

@@ -1104,11 +1104,12 @@ async function resolveCanonicalStreamCacheKey(type, providerId, season, episode,
 // Import providers
 const providers = {
     guardahd: require('./src/guardahd/index.js'),
+    guardaserie: require('./src/guardaserie/index.js'),
     guardoserie: require('./src/guardoserie/index.js'),
     animeunity: require('./src/animeunity/index.js'),
     animeworld: require('./src/animeworld/index.js'),
     animesaturn: require('./src/animesaturn/index.js'),
-    // streamingcommunity: require('./src/streamingcommunity/index.js')
+    streamingcommunity: require('./src/streamingcommunity/index.js')
 };
 
 function isLikelyAnimeRequest(type, providerId, requestContext) {
@@ -1177,17 +1178,17 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
             plan = ['streamingcommunity', 'guardahd', 'guardoserie'];
         }
     } else if (normalizedType === 'anime') {
-        plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
+        plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
     } else {
         if (isImdbRequest) {
             plan = likelyAnime
-                ? ['animeunity', 'animeworld', 'animesaturn', 'guardoserie']
-                : ['streamingcommunity', 'guardoserie'];
+                ? ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie']
+                : ['streamingcommunity', 'guardaserie', 'guardoserie'];
         } else if (likelyAnime || ENABLE_ANIME_FALLBACK_ON_SERIES) {
-            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
+            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
         } else {
             // Keep anime providers in the series plan too: they self-filter via mapping API.
-            plan = ['streamingcommunity', 'guardoserie', 'animeunity', 'animeworld', 'animesaturn'];
+            plan = ['streamingcommunity', 'guardaserie', 'guardoserie', 'animeunity', 'animeworld', 'animesaturn'];
         }
     }
 
@@ -1371,18 +1372,6 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
                 .map((s) => {
                     // For Stremio, we reconstruct the legacy multiline format using metadata
                     const nameUI = (s.qualityTag && s.qualityTag !== 'Unknown') ? s.qualityTag : s.providerName;
-                    const finalNotWebReady =
-                        s?.behaviorHints?.notWebReady === true ||
-                        (
-                            s?.behaviorHints?.proxyHeaders?.request &&
-                            typeof s.behaviorHints.proxyHeaders.request === 'object' &&
-                            Object.keys(s.behaviorHints.proxyHeaders.request).length > 0
-                        ) ||
-                        (
-                            s?.headers &&
-                            typeof s.headers === 'object' &&
-                            Object.keys(s.headers).length > 0
-                        );
 
                     let titleUI = `📁 ${s.originalTitle}\n${s.providerName}`;
                     if (s.description) titleUI += ` | ${s.description}`;
@@ -1396,10 +1385,9 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
                         name: nameUI,
                         title: titleUI,
                         url: s.url,
-                        headers: s.headers,
                         behaviorHints: {
                             ...(s.behaviorHints || {}),
-                            notWebReady: finalNotWebReady,
+                            notWebReady: s?.behaviorHints?.notWebReady === true,
                             bingeGroup: name // Consistent grouping by provider name
                         },
                         language: s.language
