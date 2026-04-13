@@ -358,7 +358,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
             const extractorUrl = `${proxyUrl}/extractor/video?host=city&url=${encodeURIComponent(finalTargetUrl)}&redirect_stream=true`;
 
             const result = {
-                name: "CC",
+                name: "CinemaCity",
                 title: movieTitle,
                 url: extractorUrl,
                 quality: "1080p",
@@ -464,7 +464,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
             "Cookie": cookies
         };
         const result = {
-            name: "CC",
+            name: "CinemaCity",
             title: movieTitle,
             url: streamUrl,
             quality: "1080p",
