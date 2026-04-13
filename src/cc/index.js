@@ -146,6 +146,31 @@ function extractJsonArray(decoded) {
     return null;
 }
 
+function resolveUrl(baseUrl, relativeOrAbsoluteUrl) {
+    try {
+        return new URL(relativeOrAbsoluteUrl, baseUrl).toString();
+    } catch {
+        return relativeOrAbsoluteUrl;
+    }
+}
+
+function getOrigin(url) {
+    try {
+        return new URL(url).origin;
+    } catch {
+        return BASE_URL;
+    }
+}
+
+function extractPlayerReferer(html, pageUrl) {
+    const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']*player\.php[^"']*)["']/i);
+    if (!iframeMatch || !iframeMatch[1]) {
+        return pageUrl;
+    }
+
+    return resolveUrl(pageUrl, iframeMatch[1]);
+}
+
 function pickStream(fileData, type, season = 1, episode = 1) {
     if (typeof fileData === 'string') {
         return fileData;
@@ -310,6 +335,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
 
         if (!response.ok) return [];
         const html = await response.text();
+        const playerReferer = extractPlayerReferer(html, movieUrl);
 
         // Cinemacity uses two mechanisms:
         // A) file:atob("...JSON...")
@@ -382,17 +408,22 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         console.log(`[CC] Found stream: ${streamUrl}`);
 
         const results = [];
+        const streamHeaders = {
+            "User-Agent": USER_AGENT,
+            "Referer": playerReferer,
+            "Origin": getOrigin(movieUrl),
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Connection": "keep-alive",
+            "Cookie": cookies
+        };
         const result = {
             name: "CC",
             title: movieTitle,
             url: streamUrl,
             quality: "1080p",
             type: "direct",
-            headers: {
-                "User-Agent": USER_AGENT,
-                "Referer": movieUrl,
-                "Cookie": cookies
-            },
+            headers: streamHeaders,
             behaviorHints: {
                 notWebReady: false
             }
