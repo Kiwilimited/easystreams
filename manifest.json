@@ -1,6 +1,6 @@
 {
   "name": "EasyStreams",
-  "version": "1.1.40",
+  "version": "1.1.41",
   "scrapers": [
     {
       "id": "easystreams-guardoserie",
@@ -96,7 +96,7 @@
     {
       "id": "easystreams-cc",
       "name": "CC",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "description": "Movies and Series from CC",
       "resources": ["stream"],
       "contentLanguage": ["it"],
