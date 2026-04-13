@@ -8,12 +8,25 @@
  */
 function resolveUrl(relative, base) {
     try {
-        return new URL(relative, base).href;
+        const baseUrl = new URL(base);
+        const resolvedUrl = new URL(relative, base);
+        
+        // If the relative URL doesn't have its own query parameters, 
+        // propagate them from the base URL (tokens are essential for Vixsrc)
+        if (!resolvedUrl.search && baseUrl.search) {
+            resolvedUrl.search = baseUrl.search;
+        }
+        
+        return resolvedUrl.href;
     } catch (e) {
         // Fallback for very basic environments
         if (relative.startsWith('http')) return relative;
         const baseDir = base.substring(0, base.lastIndexOf('/') + 1);
-        return baseDir + relative;
+        let finalUrl = baseDir + relative;
+        if (!finalUrl.includes('?') && base.includes('?')) {
+            finalUrl += base.substring(base.indexOf('?'));
+        }
+        return finalUrl;
     }
 }
 
