@@ -11686,6 +11686,303 @@ var require_animesaturn = __commonJS({
   }
 });
 
+// src/cc/index.js
+var require_cc = __commonJS({
+  "src/cc/index.js"(exports2, module2) {
+    "use strict";
+    var { formatStream } = require_formatter();
+    var { checkQualityFromPlaylist } = require_quality_helper();
+    var { createTimeoutSignal: createTimeoutSignal2 } = require_fetch_helper();
+    function base64Decode(str) {
+      try {
+        if (typeof Buffer !== "undefined") {
+          return Buffer.from(str, "base64").toString("utf8");
+        } else if (typeof atob !== "undefined") {
+          return decodeURIComponent(escape(atob(str)));
+        }
+      } catch (e) {
+        console.error("[CC] Base64 decode error:", e);
+      }
+      return "";
+    }
+    var BASE_URL = base64Decode("aHR0cHM6Ly9jaW5lbWFjaXR5LmNj");
+    var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    function getSessionCookies() {
+      const cookieB64 = "ZGxlX3VzZXJfaWQ9MzI3Mjk7IGRsZV9wYXNzd29yZD04OTQxNzFjNmE4ZGFiMThlZTU5NGQ1YzY1MjAwOWEzNTs=";
+      return base64Decode(cookieB64);
+    }
+    function searchByImdb(imdbId) {
+      return __async(this, null, function* () {
+        const cookies = getSessionCookies();
+        const trySearch = (query) => __async(null, null, function* () {
+          const searchUrl = `${BASE_URL}/index.php?do=search&subaction=search&story=${query}`;
+          console.log(`[CC] Searching for query: ${query}`);
+          try {
+            const response = yield fetch(searchUrl, {
+              headers: {
+                "User-Agent": USER_AGENT,
+                "Cookie": cookies || "",
+                "Referer": `${BASE_URL}/`
+              }
+            });
+            if (!response.ok) return null;
+            const html = yield response.text();
+            const resultMatch = html.match(/Found\s+(\d+)\s+responses/i) || html.match(/Trovat[io]\s+(\d+)\s+risultat[io]/i) || html.match(/Query results\s*\d+\s*-\s*(\d+)/i);
+            if (!resultMatch || parseInt(resultMatch[1]) === 0) {
+              if (!html.includes(query)) return null;
+            }
+            let searchArea = "";
+            const markerIdx = resultMatch ? html.indexOf(resultMatch[0]) : html.indexOf('id="dle-content"');
+            if (markerIdx === -1) {
+              if (html.includes("site search yielded no results") || html.includes("ricerca non ha prodotto risultati")) {
+                return null;
+              }
+              return null;
+            }
+            const contentEndStrings = ['id="side"', "class='side'", "<footer", "<aside"];
+            let contentEndIdx = html.length;
+            for (const s of contentEndStrings) {
+              const pos = html.indexOf(s, markerIdx);
+              if (pos !== -1 && pos < contentEndIdx) contentEndIdx = pos;
+            }
+            searchArea = html.substring(markerIdx, contentEndIdx);
+            const links = [...searchArea.matchAll(/<a[^>]+href=["']((?:https?:\/\/cinemacity\.cc)?\/(?:movies|anime|series|tv-series)\/\d+-[^"']+\.html)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+            if (links.length > 0) {
+              let bestMatch = links[0];
+              const queryPos = searchArea.indexOf(query);
+              if (queryPos !== -1) {
+                let minDistance = Infinity;
+                for (const match of links) {
+                  const distance = Math.abs(match.index - queryPos);
+                  if (distance < minDistance) {
+                    minDistance = distance;
+                    bestMatch = match;
+                  }
+                }
+              }
+              let bestLink = bestMatch[1];
+              let bestTitle = bestMatch[2].replace(/<[^>]*>?/gm, "").trim();
+              if (bestLink.startsWith("/")) bestLink = BASE_URL + bestLink;
+              return { url: bestLink, title: bestTitle };
+            }
+          } catch (e) {
+            console.error(`[CC] Search error for ${query}:`, e);
+          }
+          return null;
+        });
+        let link = yield trySearch(imdbId);
+        if (link) return link;
+        const numericId = imdbId.replace(/\D/g, "");
+        if (numericId && numericId !== imdbId) {
+          link = yield trySearch(numericId);
+        }
+        return link;
+      });
+    }
+    function extractJsonArray(decoded) {
+      let start = decoded.indexOf("file:");
+      if (start === -1) start = decoded.indexOf("sources:");
+      if (start === -1) return null;
+      start = decoded.indexOf("[", start);
+      if (start === -1) return null;
+      let depth = 0;
+      for (let i = start; i < decoded.length; i++) {
+        if (decoded[i] === "[") depth++;
+        else if (decoded[i] === "]") depth--;
+        if (depth === 0) {
+          return decoded.substring(start, i + 1);
+        }
+      }
+      return null;
+    }
+    function pickStream(fileData, type, season = 1, episode = 1) {
+      var _a;
+      if (typeof fileData === "string") {
+        return fileData;
+      }
+      if (Array.isArray(fileData)) {
+        if (type === "movie" || fileData.every((x) => x && typeof x === "object" && "file" in x && !("folder" in x))) {
+          return (_a = fileData[0]) == null ? void 0 : _a.file;
+        }
+        let selectedSeasonFolder = null;
+        for (const s of fileData) {
+          if (!s || typeof s !== "object" || !s.folder) continue;
+          const title = (s.title || "").toLowerCase();
+          const seasonRegex = new RegExp(`(?:season|stagione|s)\\s*0*${season}\\b`, "i");
+          if (seasonRegex.test(title)) {
+            selectedSeasonFolder = s.folder;
+            break;
+          }
+        }
+        if (!selectedSeasonFolder && fileData.length > 0) {
+          for (const s of fileData) {
+            if (s && s.folder) {
+              selectedSeasonFolder = s.folder;
+              break;
+            }
+          }
+        }
+        if (!selectedSeasonFolder) return null;
+        let selectedEpisodeFile = null;
+        for (const e of selectedSeasonFolder) {
+          if (!e || typeof e !== "object" || !e.file) continue;
+          const title = (e.title || "").toLowerCase();
+          const epRegex = new RegExp(`(?:episode|episodio|e)\\s*0*${episode}\\b`, "i");
+          if (epRegex.test(title)) {
+            selectedEpisodeFile = e.file;
+            break;
+          }
+        }
+        if (!selectedEpisodeFile) {
+          const idx = Math.max(0, episode - 1);
+          const epData = idx < selectedSeasonFolder.length ? selectedSeasonFolder[idx] : selectedSeasonFolder[0];
+          selectedEpisodeFile = (epData == null ? void 0 : epData.file) || null;
+        }
+        return selectedEpisodeFile;
+      }
+      return null;
+    }
+    function getStreams2(id, type, season, episode, providerContext = null) {
+      return __async(this, null, function* () {
+        let imdbId = String(id || "").trim();
+        if (!imdbId.startsWith("tt") && providerContext && providerContext.imdbId) {
+          imdbId = providerContext.imdbId;
+        }
+        if (!imdbId.startsWith("tt")) return [];
+        try {
+          const isStremioAddon = providerContext && providerContext.__requestContext === true;
+          const proxyUrl = providerContext && providerContext.proxyUrl || (typeof global !== "undefined" && global.CF_PROXY_URL ? global.CF_PROXY_URL : null);
+          const searchResult = yield searchByImdb(imdbId);
+          if (!searchResult || !searchResult.url) {
+            console.log(`[CC] No results found for IMDb: ${imdbId}`);
+            return [];
+          }
+          const movieUrl = searchResult.url;
+          let movieTitle = (searchResult.title || imdbId).replace(/\s*\(.*?\)\s*/g, "").trim();
+          if (type === "tv" || type === "series") {
+            movieTitle += ` ${season}x${episode}`;
+          }
+          console.log(`[CC] Found URL and Title: ${movieUrl} (${movieTitle})`);
+          if (isStremioAddon) {
+            if (!proxyUrl) {
+              console.log(`[CC] Skipping Stremio Addon execution because proxy is not configured.`);
+              return [];
+            }
+            let finalTargetUrl = movieUrl;
+            if (type === "tv" || type === "series") {
+              const separator = finalTargetUrl.includes("?") ? "&" : "?";
+              finalTargetUrl += `${separator}s=${season}&e=${episode}`;
+            }
+            const extractorUrl = `${proxyUrl}/extractor/video?host=city&url=${encodeURIComponent(finalTargetUrl)}&redirect_stream=true`;
+            console.log(`[CC] Using EasyProxy extractor: ${extractorUrl}`);
+            const result2 = {
+              name: "CC",
+              title: movieTitle,
+              url: extractorUrl,
+              quality: "1080p",
+              type: "direct",
+              behaviorHints: {
+                notWebReady: true
+              }
+            };
+            return [formatStream(result2, "CC")];
+          }
+          console.log(`[CC] Executing direct HTML extraction for Nuvio plugin...`);
+          const cookies = getSessionCookies();
+          const response = yield fetch(movieUrl, {
+            headers: {
+              "User-Agent": USER_AGENT,
+              "Cookie": cookies,
+              "Referer": `${BASE_URL}/`
+            }
+          });
+          if (!response.ok) return [];
+          const html = yield response.text();
+          const atobRegex = /atob\s*\(\s*['"](.*?)['"]\s*\)/gi;
+          let match;
+          let fileData = null;
+          while ((match = atobRegex.exec(html)) !== null) {
+            const encoded = match[1];
+            try {
+              if (encoded.length < 50) continue;
+              let decoded;
+              try {
+                decoded = base64Decode(encoded);
+              } catch (e) {
+                continue;
+              }
+              if (!decoded) continue;
+              if (decoded.trim().startsWith("[")) {
+                try {
+                  fileData = JSON.parse(decoded);
+                  if (fileData && fileData.length > 0) break;
+                } catch (e) {
+                }
+              }
+              const rawJson = extractJsonArray(decoded);
+              if (rawJson) {
+                try {
+                  const cleanJson = rawJson.replace(/\\(.)/g, "$1");
+                  fileData = JSON.parse(cleanJson);
+                } catch (e) {
+                  try {
+                    fileData = JSON.parse(rawJson);
+                  } catch (e2) {
+                  }
+                }
+                if (fileData && fileData.length > 0) break;
+              }
+              const fileMatch = decoded.match(/(?:file|sources)\s*:\s*['"](.*?)['"]/i);
+              if (fileMatch) {
+                const url = fileMatch[1];
+                if (url.includes(".m3u8") || url.includes(".mp4")) {
+                  fileData = url;
+                  break;
+                }
+              }
+            } catch (e) {
+              continue;
+            }
+          }
+          if (!fileData) {
+            console.log(`[CC] Could not extract stream info from: ${movieUrl}`);
+            return [];
+          }
+          const streamUrl = pickStream(fileData, type, season, episode);
+          if (!streamUrl) return [];
+          console.log(`[CC] Found stream: ${streamUrl}`);
+          const results = [];
+          const result = {
+            name: "CC",
+            title: movieTitle,
+            url: streamUrl,
+            quality: "1080p",
+            type: "direct",
+            headers: {
+              "User-Agent": USER_AGENT,
+              "Referer": movieUrl,
+              "Cookie": cookies
+            },
+            behaviorHints: {
+              notWebReady: false
+            }
+          };
+          if (streamUrl.includes(".m3u8")) {
+            const detectedQuality = yield checkQualityFromPlaylist(streamUrl, result.headers);
+            if (detectedQuality) result.quality = detectedQuality;
+          }
+          results.push(formatStream(result, "CC"));
+          return results;
+        } catch (e) {
+          console.error("[CC] Error:", e);
+          return [];
+        }
+      });
+    }
+    module2.exports = { getStreams: getStreams2 };
+  }
+});
+
 // src/index.js
 var guardahd = require_guardahd();
 var guardaserie = require_guardaserie();
@@ -11694,6 +11991,7 @@ var streamingcommunity = require_streamingcommunity();
 var animeunity = require_animeunity();
 var animeworld = require_animeworld();
 var animesaturn = require_animesaturn();
+var cc = require_cc();
 var { createTimeoutSignal } = require_fetch_helper();
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var CONTEXT_TIMEOUT = 3e3;
@@ -11818,13 +12116,13 @@ function getStreams(id, type, season, episode) {
     const promises = [];
     const likelyAnime = isLikelyAnimeRequest(normalizedType);
     const isKitsuRequest = String((providerContext == null ? void 0 : providerContext.idType) || "").toLowerCase() === "kitsu" || /^kitsu:\d+$/i.test(String(id || "").trim());
-    const isImdbRequest = String((providerContext == null ? void 0 : providerContext.idType) || "").toLowerCase() === "imdb" || /^tt\d+$/i.test(String(id || "").trim());
+    const isImdbRequest = String((providerContext == null ? void 0 : providerContext.idType) || "").toLowerCase() === "imdb" || /^tt\d+$/i.test(String(id || "").trim()) || !!(providerContext && providerContext.imdbId && /^tt\d+$/i.test(providerContext.imdbId));
     const selectedProviders = [];
     if (normalizedType === "movie") {
       if (likelyAnime || isKitsuRequest) {
         selectedProviders.push("animeunity", "animeworld", "animesaturn", "guardoserie", "streamingcommunity", "guardahd");
       } else {
-        selectedProviders.push("streamingcommunity", "guardahd", "guardoserie");
+        selectedProviders.push("streamingcommunity", "guardahd", "guardoserie", "cc");
       }
     } else if (normalizedType === "anime") {
       selectedProviders.push("animeunity", "animeworld", "animesaturn", "guardaserie", "guardoserie");
@@ -11833,13 +12131,13 @@ function getStreams(id, type, season, episode) {
         selectedProviders.push("animeunity", "animeworld", "animesaturn", "guardaserie", "guardoserie");
       } else {
         if (isImdbRequest) {
-          selectedProviders.push("streamingcommunity", "guardaserie", "guardoserie");
+          selectedProviders.push("streamingcommunity", "guardaserie", "guardoserie", "cc");
         } else {
           selectedProviders.push("streamingcommunity", "guardaserie", "guardoserie", "animeunity", "animeworld", "animesaturn");
         }
       }
     } else {
-      selectedProviders.push("streamingcommunity", "guardahd", "guardoserie");
+      selectedProviders.push("streamingcommunity", "guardahd", "guardoserie", "cc");
     }
     for (const providerName of [...new Set(selectedProviders)]) {
       if (providerName === "streamingcommunity") {
@@ -11881,6 +12179,11 @@ function getStreams(id, type, season, episode) {
       if (providerName === "guardoserie") {
         promises.push(
           guardoserie.getStreams(id, normalizedType, effectiveSeason, normalizedEpisode, sharedContext).then((s) => ({ provider: "Guardoserie", streams: s, status: "fulfilled" })).catch((e) => ({ provider: "Guardoserie", error: e, status: "rejected" }))
+        );
+      }
+      if (providerName === "cc") {
+        promises.push(
+          cc.getStreams(id, normalizedType, effectiveSeason, normalizedEpisode, sharedContext).then((s) => ({ provider: "CC", streams: s, status: "fulfilled" })).catch((e) => ({ provider: "CC", error: e, status: "rejected" }))
         );
       }
     }

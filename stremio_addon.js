@@ -1154,7 +1154,8 @@ const providers = {
     animeunity: require('./src/animeunity/index.js'),
     animeworld: require('./src/animeworld/index.js'),
     animesaturn: require('./src/animesaturn/index.js'),
-    streamingcommunity: require('./src/streamingcommunity/index.js')
+    streamingcommunity: require('./src/streamingcommunity/index.js'),
+    cc: require('./src/cc/index.js')
 };
 
 function isLikelyAnimeRequest(type, providerId, requestContext) {
@@ -1203,7 +1204,8 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
         : isLikelyAnimeRequest(normalizedType, providerId, requestContext);
     const isImdbRequest =
         String(requestContext?.idType || '').toLowerCase() === 'imdb' ||
-        /^tt\d+$/i.test(String(providerId || '').trim());
+        /^tt\d+$/i.test(String(providerId || '').trim()) ||
+        !!(requestContext && requestContext.imdbId && /^tt\d+$/i.test(requestContext.imdbId));
     const isKitsuRequest =
         String(requestContext?.idType || '').toLowerCase() === 'kitsu' ||
         /^kitsu:\d+$/i.test(String(providerId || '').trim());
@@ -1216,11 +1218,11 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
         } else if (isImdbRequest) {
             plan = likelyAnime
                 ? ['animeunity', 'animeworld', 'animesaturn', 'guardoserie', 'streamingcommunity', 'guardahd']
-                : ['streamingcommunity', 'guardahd', 'guardoserie'];
+                : ['streamingcommunity', 'guardahd', 'guardoserie', 'cc'];
         } else if (likelyAnime || ENABLE_ANIME_FALLBACK_ON_MOVIES) {
             plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
         } else {
-            plan = ['streamingcommunity', 'guardahd', 'guardoserie'];
+            plan = ['streamingcommunity', 'guardahd', 'guardoserie', 'cc'];
         }
     } else if (normalizedType === 'anime') {
         plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
@@ -1228,7 +1230,7 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
         if (isImdbRequest) {
             plan = likelyAnime
                 ? ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie']
-                : ['streamingcommunity', 'guardaserie', 'guardoserie'];
+                : ['streamingcommunity', 'guardaserie', 'guardoserie', 'cc'];
         } else if (likelyAnime || ENABLE_ANIME_FALLBACK_ON_SERIES) {
             plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
         } else {
@@ -1410,6 +1412,7 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
             const providerPromise = (async () => {
                 try {
                     const providerContext = buildProviderRequestContext(requestContext);
+                    providerContext.proxyUrl = easyProxyUrl;
                     const streams = await provider.getStreams(providerId, providerType, effectiveSeason, episode, providerContext);
                     logVerbose(`[${name}] Found ${streams.length} streams`);
                     return streams;

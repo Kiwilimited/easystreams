@@ -5,6 +5,7 @@ const streamingcommunity = require('./streamingcommunity/index');
 const animeunity = require('./animeunity/index');
 const animeworld = require('./animeworld/index');
 const animesaturn = require('./animesaturn/index');
+const cc = require('./cc/index');
 const { createTimeoutSignal } = require('./fetch_helper.js');
 
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
@@ -153,13 +154,14 @@ async function getStreams(id, type, season, episode) {
         /^kitsu:\d+$/i.test(String(id || '').trim());
     const isImdbRequest =
         String(providerContext?.idType || '').toLowerCase() === 'imdb' ||
-        /^tt\d+$/i.test(String(id || '').trim());
+        /^tt\d+$/i.test(String(id || '').trim()) ||
+        !!(providerContext && providerContext.imdbId && /^tt\d+$/i.test(providerContext.imdbId));
     const selectedProviders = [];
     if (normalizedType === 'movie') {
         if (likelyAnime || isKitsuRequest) {
             selectedProviders.push('animeunity', 'animeworld', 'animesaturn', 'guardoserie', 'streamingcommunity', 'guardahd');
         } else {
-            selectedProviders.push('streamingcommunity', 'guardahd', 'guardoserie');
+            selectedProviders.push('streamingcommunity', 'guardahd', 'guardoserie', 'cc');
         }
     } else if (normalizedType === 'anime') {
         selectedProviders.push('animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie');
@@ -168,13 +170,13 @@ async function getStreams(id, type, season, episode) {
             selectedProviders.push('animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie');
         } else {
             if (isImdbRequest) {
-                selectedProviders.push('streamingcommunity', 'guardaserie', 'guardoserie');
+                selectedProviders.push('streamingcommunity', 'guardaserie', 'guardoserie', 'cc');
             } else {
                 selectedProviders.push('streamingcommunity', 'guardaserie', 'guardoserie', 'animeunity', 'animeworld', 'animesaturn');
             }
         }
     } else {
-        selectedProviders.push('streamingcommunity', 'guardahd', 'guardoserie');
+        selectedProviders.push('streamingcommunity', 'guardahd', 'guardoserie', 'cc');
     }
 
     for (const providerName of [...new Set(selectedProviders)]) {
@@ -231,6 +233,13 @@ async function getStreams(id, type, season, episode) {
                 guardoserie.getStreams(id, normalizedType, effectiveSeason, normalizedEpisode, sharedContext)
                     .then(s => ({ provider: 'Guardoserie', streams: s, status: 'fulfilled' }))
                     .catch(e => ({ provider: 'Guardoserie', error: e, status: 'rejected' }))
+            );
+        }
+        if (providerName === 'cc') {
+            promises.push(
+                cc.getStreams(id, normalizedType, effectiveSeason, normalizedEpisode, sharedContext)
+                    .then(s => ({ provider: 'CC', streams: s, status: 'fulfilled' }))
+                    .catch(e => ({ provider: 'CC', error: e, status: 'rejected' }))
             );
         }
     }
