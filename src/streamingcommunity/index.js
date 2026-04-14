@@ -33,6 +33,56 @@ function getCommonHeaders() {
   };
 }
 
+function getEmbedHeaders(embedUrl) {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": `${getStreamingCommunityBaseUrl()}/`,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+  };
+}
+
+function getPlaylistHeaders(embedUrl) {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": embedUrl,
+    "Origin": getStreamingCommunityBaseUrl(),
+    "Accept": "*/*",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin"
+  };
+}
+
+function extractEmbedSrcFromApiPayload(payload) {
+  const rawSrc = payload && typeof payload === "object" ? payload.src : null;
+  if (!rawSrc) return null;
+  try {
+    return new URL(rawSrc, getStreamingCommunityBaseUrl()).toString();
+  } catch (e) {
+    return null;
+  }
+}
+
+function extractMasterPlaylistFromEmbedHtml(html) {
+  if (!html) return null;
+
+  const tokenMatch = html.match(/'token'\s*:\s*'([^']+)'/i);
+  const expiresMatch = html.match(/'expires'\s*:\s*'([^']+)'/i);
+  const urlMatch = html.match(/url\s*:\s*'([^']+\/playlist\/\d+[^']*)'/i);
+
+  if (!tokenMatch || !expiresMatch || !urlMatch) {
+    return null;
+  }
+
+  return {
+    token: tokenMatch[1],
+    expires: expiresMatch[1],
+    url: urlMatch[1]
+  };
+}
+
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return "Unknown";
   const quality = qualityStr.toUpperCase();
@@ -172,52 +222,55 @@ async function getStreams(id, type, season, episode, providerContext = null) {
   const finalDisplayName = displayName;
 
   let url;
+  let apiUrl;
   if (normalizedType === "movie") {
     url = `${baseUrl}/movie/${tmdbId}`;
+    apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
   } else if (normalizedType === "tv") {
     url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+    apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
   } else {
     return [];
   }
 
   try {
-    console.log(`[StreamingCommunity] Fetching page: ${url}`);
-    const response = await fetch(url, {
+    console.log(`[StreamingCommunity] Fetching API: ${apiUrl}`);
+    const response = await fetch(apiUrl, {
       headers: commonHeaders
     });
     if (!response.ok) {
       console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
       return [];
     }
-    const html = await response.text();
-    if (!html) return [];
+    const apiPayload = await response.json().catch(() => null);
+    const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
+    if (!embedUrl) {
+      console.log("[StreamingCommunity] Could not find embed src in API payload");
+      return [];
+    }
 
-    const tokenMatch = html.match(/'token':\s*'([^']+)'/);
-    const expiresMatch = html.match(/'expires':\s*'([^']+)'/);
-    const urlMatch = html.match(/url:\s*'([^']+)'/);
+    console.log(`[StreamingCommunity] Fetching embed: ${embedUrl}`);
+    const embedResponse = await fetch(embedUrl, {
+      headers: getEmbedHeaders(embedUrl)
+    });
+    if (!embedResponse.ok) {
+      console.error(`[StreamingCommunity] Failed to fetch embed: ${embedResponse.status}`);
+      return [];
+    }
 
-    if (tokenMatch && expiresMatch && urlMatch) {
-      const token = tokenMatch[1];
-      const expires = expiresMatch[1];
-      const streamBaseUrl = urlMatch[1];
-      
-      // Standard Vixsrc/StreamingCommunity HLS URL with quality parameters
-      // h=1 is the official parameter for forcing High Definition variants
-      let streamUrl;
-      const params = `token=${token}&expires=${expires}&h=1&lang=it`;
-      
-      if (streamBaseUrl.includes("?b=1")) {
-        streamUrl = streamBaseUrl.replace('?', '.m3u8?') + `&${params}`;
-      } else {
-        streamUrl = `${streamBaseUrl}.m3u8?${params}`;
-      }
-      
+    const embedHtml = await embedResponse.text();
+    if (!embedHtml) return [];
+
+    const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
+    if (masterPlaylist) {
+      const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
+      const streamHeaders = getPlaylistHeaders(embedUrl);
       console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
 
-      let quality = "720p"; // Default
+      let quality = "720p";
       try {
         const playlistResponse = await fetch(streamUrl, {
-          headers: commonHeaders
+          headers: streamHeaders
         });
         if (playlistResponse.ok) {
           const playlistText = await playlistResponse.text();
@@ -241,11 +294,11 @@ async function getStreams(id, type, season, episode, providerContext = null) {
       const result = {
         name: `StreamingCommunity`,
         title: finalDisplayName,
-        url: streamUrl, // "Real" URL for maximum compatibility
-        easyProxySourceUrl: url,
+        url: streamUrl,
+        easyProxySourceUrl: embedUrl,
         quality: normalizedQuality,
         type: "direct",
-        headers: commonHeaders,
+        headers: streamHeaders,
         behaviorHints: {
           notWebReady: false
         }
