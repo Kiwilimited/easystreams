@@ -733,22 +733,8 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                         }, 'Guardoserie')];
                     }
                 } else if (playerLink.includes('dropload') || playerLink.includes('dr0pstream')) {
-                    const extracted = await extractDropLoad(playerLink);
-                    if (extracted && extracted.url) {
-                        let quality = "HD";
-                        if (extracted.url.includes('.m3u8')) {
-                            const detected = await checkQualityFromPlaylist(extracted.url, extracted.headers || {});
-                            if (detected) quality = detected;
-                        }
-                        return [formatStream({
-                            url: extracted.url,
-                            headers: extracted.headers,
-                            name: `Guardoserie - DropLoad`,
-                            title: displayName,
-                            quality: getQualityFromName(quality),
-                            type: "direct"
-                        }, 'Guardoserie')];
-                    }
+                    console.log(`[Guardoserie] DropLoad temporarily disabled: ${playerLink}`);
+                    return [];
                 } else if (playerLink.includes('mixdrop') || playerLink.includes('m1xdrop')) {
                     const extracted = await extractMixDrop(playerLink);
                     if (extracted && extracted.url) {
@@ -763,17 +749,8 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                         }, 'Guardoserie')];
                     }
                 } else if (playerLink.includes('supervideo')) {
-                    const extracted = await extractSuperVideo(playerLink);
-                    if (extracted && extracted.url) {
-                        return [formatStream({
-                            url: extracted.url,
-                            headers: extracted.headers,
-                            name: `Guardoserie - SuperVideo`,
-                            title: displayName,
-                            quality: getQualityFromName("HD"),
-                            type: "direct"
-                        }, 'Guardoserie')];
-                    }
+                    console.log(`[Guardoserie] SuperVideo temporarily disabled: ${playerLink}`);
+                    return [];
                 }
             } catch (e) {
                 console.error(`[Guardoserie] Extraction error for ${playerLink}:`, e);

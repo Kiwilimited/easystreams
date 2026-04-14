@@ -24,7 +24,7 @@ function getGuardaHdBaseUrl() {
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
-const { extractMixDrop, extractDropLoad, extractSuperVideo } = require('../extractors');
+const { extractMixDrop, extractDropLoad, extractSuperVideo, extractStreamHG } = require('../extractors');
 require('../fetch_helper.js');
 const { formatStream } = require('../formatter.js');
 const { checkQualityFromPlaylist, getQualityFromUrl } = require('../quality_helper.js');
@@ -180,7 +180,7 @@ function getStreams(id, type, season, episode) {
         linksSet.add(match[1]);
       }
 
-      const directRegex = /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|streamtape)[^"'<\s]+/ig;
+      const directRegex = /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|streamtape|dhcplay|vibuxer)[^"'<\s]+/ig;
       const directMatches = html.match(directRegex) || [];
       for (const raw of directMatches) {
           linksSet.add(raw);
@@ -211,33 +211,16 @@ function getStreams(id, type, season, episode) {
                 type: "direct"
               });
             }
-          } else if (streamUrl.includes("dropload") || streamUrl.includes("dr0pstream")) {
-            console.log(`[GuardaHD] Attempting DropLoad extraction for ${streamUrl}`);
-            const extracted = await extractDropLoad(streamUrl);
+          } else if (streamUrl.includes("dhcplay") || streamUrl.includes("vibuxer")) {
+            console.log(`[GuardaHD] Attempting StreamHG extraction for ${streamUrl}`);
+            const extracted = await extractStreamHG(streamUrl);
             if (extracted && extracted.url) {
-              let quality = "HD";
-              const playlistQuality = await checkQualityFromPlaylist(extracted.url, extracted.headers);
-              if (playlistQuality) quality = playlistQuality;
-              const normalizedQuality = getQualityFromName(quality);
-              streams.push({
-                name: `GuardaHD - DropLoad`,
-                title: displayName,
-                url: extracted.url,
-                headers: extracted.headers,
-                quality: normalizedQuality,
-                type: "direct"
-              });
-            }
-          } else if (streamUrl.includes("supervideo")) {
-            console.log(`[GuardaHD] Attempting SuperVideo extraction for ${streamUrl}`);
-            const extracted = await extractSuperVideo(streamUrl);
-            if (extracted && extracted.url) {
-              let quality = "HD";
+              let quality = getQualityFromUrl(extracted.url) || "HD";
               const playlistQuality = await checkQualityFromPlaylist(extracted.url, extracted.headers || {});
               if (playlistQuality) quality = playlistQuality;
               const normalizedQuality = getQualityFromName(quality);
               streams.push({
-                name: `GuardaHD - SuperVideo`,
+                name: `GuardaHD - StreamHG`,
                 title: displayName,
                 url: extracted.url,
                 headers: extracted.headers,
@@ -245,6 +228,10 @@ function getStreams(id, type, season, episode) {
                 type: "direct"
               });
             }
+          } else if (streamUrl.includes("dropload") || streamUrl.includes("dr0pstream")) {
+            console.log(`[GuardaHD] DropLoad temporarily disabled: ${streamUrl}`);
+          } else if (streamUrl.includes("supervideo")) {
+            console.log(`[GuardaHD] SuperVideo temporarily disabled: ${streamUrl}`);
           }
         } catch (e) {
           console.error("[GuardaHD] Process URL error:", e);

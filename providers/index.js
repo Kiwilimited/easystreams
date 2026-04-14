@@ -7253,6 +7253,87 @@ var require_loadm = __commonJS({
   }
 });
 
+// src/extractors/streamhg.js
+var require_streamhg = __commonJS({
+  "src/extractors/streamhg.js"(exports2, module2) {
+    var { USER_AGENT, unPack, getProxiedUrl } = require_common();
+    function resolveAbsoluteUrl(candidate, baseUrl) {
+      if (!candidate) return null;
+      try {
+        return new URL(candidate, baseUrl).toString();
+      } catch (_) {
+        return null;
+      }
+    }
+    function getOrigin(url) {
+      try {
+        return new URL(url).origin;
+      } catch (_) {
+        return null;
+      }
+    }
+    function getBaseHeaders(referer) {
+      const headers = {
+        "User-Agent": USER_AGENT
+      };
+      if (referer) headers["Referer"] = referer;
+      return headers;
+    }
+    function extractStreamHG(url, refererBase = null) {
+      return __async(this, null, function* () {
+        try {
+          if (url.startsWith("//")) url = "https:" + url;
+          const initialReferer = refererBase || `${getOrigin(url) || "https://dhcplay.com"}/`;
+          const candidates = [url];
+          try {
+            const parsed = new URL(url);
+            const idMatch = parsed.pathname.match(/\/e\/([^/?#]+)/i);
+            if (idMatch && /(^|\.)dhcplay\.com$/i.test(parsed.hostname)) {
+              candidates.push(`https://vibuxer.com/e/${idMatch[1]}`);
+            }
+          } catch (_) {
+          }
+          let finalUrl = null;
+          let packedMatch = null;
+          for (const candidate of candidates) {
+            const response = yield fetch(getProxiedUrl(candidate), {
+              headers: getBaseHeaders(initialReferer),
+              redirect: "follow"
+            });
+            if (!response.ok) continue;
+            const html = yield response.text();
+            const match = html.match(new RegExp("eval\\(function\\(p,a,c,k,e,d\\)\\{.*?\\}\\('(.*?)',(\\d+),(\\d+),'(.*?)'\\.split\\('\\|'\\)", "s"));
+            if (!match) continue;
+            finalUrl = response.url || candidate;
+            packedMatch = match;
+            break;
+          }
+          if (!packedMatch || !finalUrl) return null;
+          const p = packedMatch[1];
+          const a = parseInt(packedMatch[2], 10);
+          const c = parseInt(packedMatch[3], 10);
+          const k = packedMatch[4].split("|");
+          const unpacked = unPack(p, a, c, k, null, {});
+          let streamUrl = null;
+          const hls2Match = unpacked.match(/["']hls2["']\s*:\s*["']([^"']+)["']/i);
+          const hls4Match = unpacked.match(/["']hls4["']\s*:\s*["']([^"']+)["']/i);
+          const fileMatch = unpacked.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
+          streamUrl = hls2Match && hls2Match[1] || hls4Match && hls4Match[1] || fileMatch && fileMatch[1] || null;
+          streamUrl = resolveAbsoluteUrl(streamUrl, finalUrl);
+          if (!streamUrl) return null;
+          return {
+            url: streamUrl
+          };
+        } catch (e) {
+          console.error("[Extractors] StreamHG extraction error:", e);
+          return null;
+        }
+      });
+    }
+    module2.exports = { extractStreamHG };
+  }
+});
+
 // src/extractors/index.js
 var require_extractors = __commonJS({
   "src/extractors/index.js"(exports2, module2) {
@@ -7265,6 +7346,7 @@ var require_extractors = __commonJS({
     var { extractVidoza } = require_vidoza();
     var { extractVixCloud } = require_vixcloud();
     var { extractLoadm } = require_loadm();
+    var { extractStreamHG } = require_streamhg();
     var { USER_AGENT, unPack } = require_common();
     module2.exports = {
       extractMixDrop,
@@ -7276,6 +7358,7 @@ var require_extractors = __commonJS({
       extractVidoza,
       extractVixCloud,
       extractLoadm,
+      extractStreamHG,
       USER_AGENT,
       unPack
     };
@@ -7423,7 +7506,7 @@ var require_guardahd = __commonJS({
     }
     var TMDB_API_KEY2 = "68e094699525b18a70bab2f86b1fa706";
     var USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-    var { extractMixDrop, extractDropLoad, extractSuperVideo } = require_extractors();
+    var { extractMixDrop, extractDropLoad, extractSuperVideo, extractStreamHG } = require_extractors();
     require_fetch_helper();
     var { formatStream } = require_formatter();
     var { checkQualityFromPlaylist, getQualityFromUrl } = require_quality_helper();
@@ -7557,7 +7640,7 @@ var require_guardahd = __commonJS({
           while ((match = linkRegex.exec(html)) !== null) {
             linksSet.add(match[1]);
           }
-          const directRegex = /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|streamtape)[^"'<\s]+/ig;
+          const directRegex = /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|streamtape|dhcplay|vibuxer)[^"'<\s]+/ig;
           const directMatches = html.match(directRegex) || [];
           for (const raw of directMatches) {
             linksSet.add(raw);
@@ -7585,33 +7668,16 @@ var require_guardahd = __commonJS({
                     type: "direct"
                   });
                 }
-              } else if (streamUrl.includes("dropload") || streamUrl.includes("dr0pstream")) {
-                console.log(`[GuardaHD] Attempting DropLoad extraction for ${streamUrl}`);
-                const extracted = yield extractDropLoad(streamUrl);
+              } else if (streamUrl.includes("dhcplay") || streamUrl.includes("vibuxer")) {
+                console.log(`[GuardaHD] Attempting StreamHG extraction for ${streamUrl}`);
+                const extracted = yield extractStreamHG(streamUrl);
                 if (extracted && extracted.url) {
-                  let quality = "HD";
-                  const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers);
-                  if (playlistQuality) quality = playlistQuality;
-                  const normalizedQuality = getQualityFromName(quality);
-                  streams.push({
-                    name: `GuardaHD - DropLoad`,
-                    title: displayName,
-                    url: extracted.url,
-                    headers: extracted.headers,
-                    quality: normalizedQuality,
-                    type: "direct"
-                  });
-                }
-              } else if (streamUrl.includes("supervideo")) {
-                console.log(`[GuardaHD] Attempting SuperVideo extraction for ${streamUrl}`);
-                const extracted = yield extractSuperVideo(streamUrl);
-                if (extracted && extracted.url) {
-                  let quality = "HD";
+                  let quality = getQualityFromUrl(extracted.url) || "HD";
                   const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
                   if (playlistQuality) quality = playlistQuality;
                   const normalizedQuality = getQualityFromName(quality);
                   streams.push({
-                    name: `GuardaHD - SuperVideo`,
+                    name: `GuardaHD - StreamHG`,
                     title: displayName,
                     url: extracted.url,
                     headers: extracted.headers,
@@ -7619,6 +7685,10 @@ var require_guardahd = __commonJS({
                     type: "direct"
                   });
                 }
+              } else if (streamUrl.includes("dropload") || streamUrl.includes("dr0pstream")) {
+                console.log(`[GuardaHD] DropLoad temporarily disabled: ${streamUrl}`);
+              } else if (streamUrl.includes("supervideo")) {
+                console.log(`[GuardaHD] SuperVideo temporarily disabled: ${streamUrl}`);
               }
             } catch (e) {
               console.error("[GuardaHD] Process URL error:", e);
@@ -7842,11 +7912,11 @@ var require_guardaserie = __commonJS({
           const streamPromises = links.map((link) => __async2(null, null, function* () {
             try {
               if (link.includes("dropload") || link.includes("dr0pstream")) {
-                const ext = yield extractDropLoad(link);
-                if (ext && ext.url) return { url: ext.url, headers: ext.headers, name: "Guardaserie - DropLoad", title: displayName, quality: getQualityFromName("HD"), type: "direct" };
+                console.log(`[Guardaserie] DropLoad temporarily disabled: ${link}`);
+                return null;
               } else if (link.includes("supervideo")) {
-                const ext = yield extractSuperVideo(link);
-                if (ext && ext.url) return { url: ext.url, headers: ext.headers, name: "Guardaserie - SuperVideo", title: displayName, quality: getQualityFromName("HD"), type: "direct" };
+                console.log(`[Guardaserie] SuperVideo temporarily disabled: ${link}`);
+                return null;
               } else if (link.includes("mixdrop")) {
                 const ext = yield extractMixDrop(link);
                 if (ext && ext.url) return { url: ext.url, easyProxySourceUrl: link, headers: ext.headers, name: "Guardaserie - MixDrop", title: displayName, quality: getQualityFromName("HD"), type: "direct" };
@@ -8483,22 +8553,8 @@ var require_guardoserie = __commonJS({
                   }, "Guardoserie")];
                 }
               } else if (playerLink.includes("dropload") || playerLink.includes("dr0pstream")) {
-                const extracted = yield extractDropLoad(playerLink);
-                if (extracted && extracted.url) {
-                  let quality = "HD";
-                  if (extracted.url.includes(".m3u8")) {
-                    const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
-                    if (detected) quality = detected;
-                  }
-                  return [formatStream({
-                    url: extracted.url,
-                    headers: extracted.headers,
-                    name: `Guardoserie - DropLoad`,
-                    title: displayName,
-                    quality: getQualityFromName(quality),
-                    type: "direct"
-                  }, "Guardoserie")];
-                }
+                console.log(`[Guardoserie] DropLoad temporarily disabled: ${playerLink}`);
+                return [];
               } else if (playerLink.includes("mixdrop") || playerLink.includes("m1xdrop")) {
                 const extracted = yield extractMixDrop(playerLink);
                 if (extracted && extracted.url) {
@@ -8513,17 +8569,8 @@ var require_guardoserie = __commonJS({
                   }, "Guardoserie")];
                 }
               } else if (playerLink.includes("supervideo")) {
-                const extracted = yield extractSuperVideo(playerLink);
-                if (extracted && extracted.url) {
-                  return [formatStream({
-                    url: extracted.url,
-                    headers: extracted.headers,
-                    name: `Guardoserie - SuperVideo`,
-                    title: displayName,
-                    quality: getQualityFromName("HD"),
-                    type: "direct"
-                  }, "Guardoserie")];
-                }
+                console.log(`[Guardoserie] SuperVideo temporarily disabled: ${playerLink}`);
+                return [];
               }
             } catch (e) {
               console.error(`[Guardoserie] Extraction error for ${playerLink}:`, e);

@@ -7254,6 +7254,87 @@ var require_loadm = __commonJS({
   }
 });
 
+// src/extractors/streamhg.js
+var require_streamhg = __commonJS({
+  "src/extractors/streamhg.js"(exports2, module2) {
+    var { USER_AGENT: USER_AGENT2, unPack, getProxiedUrl: getProxiedUrl2 } = require_common();
+    function resolveAbsoluteUrl(candidate, baseUrl) {
+      if (!candidate) return null;
+      try {
+        return new URL(candidate, baseUrl).toString();
+      } catch (_) {
+        return null;
+      }
+    }
+    function getOrigin(url) {
+      try {
+        return new URL(url).origin;
+      } catch (_) {
+        return null;
+      }
+    }
+    function getBaseHeaders(referer) {
+      const headers = {
+        "User-Agent": USER_AGENT2
+      };
+      if (referer) headers["Referer"] = referer;
+      return headers;
+    }
+    function extractStreamHG(url, refererBase = null) {
+      return __async(this, null, function* () {
+        try {
+          if (url.startsWith("//")) url = "https:" + url;
+          const initialReferer = refererBase || `${getOrigin(url) || "https://dhcplay.com"}/`;
+          const candidates = [url];
+          try {
+            const parsed = new URL(url);
+            const idMatch = parsed.pathname.match(/\/e\/([^/?#]+)/i);
+            if (idMatch && /(^|\.)dhcplay\.com$/i.test(parsed.hostname)) {
+              candidates.push(`https://vibuxer.com/e/${idMatch[1]}`);
+            }
+          } catch (_) {
+          }
+          let finalUrl = null;
+          let packedMatch = null;
+          for (const candidate of candidates) {
+            const response = yield fetch(getProxiedUrl2(candidate), {
+              headers: getBaseHeaders(initialReferer),
+              redirect: "follow"
+            });
+            if (!response.ok) continue;
+            const html = yield response.text();
+            const match = html.match(new RegExp("eval\\(function\\(p,a,c,k,e,d\\)\\{.*?\\}\\('(.*?)',(\\d+),(\\d+),'(.*?)'\\.split\\('\\|'\\)", "s"));
+            if (!match) continue;
+            finalUrl = response.url || candidate;
+            packedMatch = match;
+            break;
+          }
+          if (!packedMatch || !finalUrl) return null;
+          const p = packedMatch[1];
+          const a = parseInt(packedMatch[2], 10);
+          const c = parseInt(packedMatch[3], 10);
+          const k = packedMatch[4].split("|");
+          const unpacked = unPack(p, a, c, k, null, {});
+          let streamUrl = null;
+          const hls2Match = unpacked.match(/["']hls2["']\s*:\s*["']([^"']+)["']/i);
+          const hls4Match = unpacked.match(/["']hls4["']\s*:\s*["']([^"']+)["']/i);
+          const fileMatch = unpacked.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
+          streamUrl = hls2Match && hls2Match[1] || hls4Match && hls4Match[1] || fileMatch && fileMatch[1] || null;
+          streamUrl = resolveAbsoluteUrl(streamUrl, finalUrl);
+          if (!streamUrl) return null;
+          return {
+            url: streamUrl
+          };
+        } catch (e) {
+          console.error("[Extractors] StreamHG extraction error:", e);
+          return null;
+        }
+      });
+    }
+    module2.exports = { extractStreamHG };
+  }
+});
+
 // src/extractors/index.js
 var require_extractors = __commonJS({
   "src/extractors/index.js"(exports2, module2) {
@@ -7266,6 +7347,7 @@ var require_extractors = __commonJS({
     var { extractVidoza } = require_vidoza();
     var { extractVixCloud: extractVixCloud2 } = require_vixcloud();
     var { extractLoadm } = require_loadm();
+    var { extractStreamHG } = require_streamhg();
     var { USER_AGENT: USER_AGENT2, unPack } = require_common();
     module2.exports = {
       extractMixDrop,
@@ -7277,6 +7359,7 @@ var require_extractors = __commonJS({
       extractVidoza,
       extractVixCloud: extractVixCloud2,
       extractLoadm,
+      extractStreamHG,
       USER_AGENT: USER_AGENT2,
       unPack
     };
@@ -7481,19 +7564,6 @@ function toAbsoluteUrl(href) {
   } catch (e) {
     return null;
   }
-}
-function getProxySafeSourceUrl(rawUrl) {
-  const absolute = toAbsoluteUrl(rawUrl);
-  if (!absolute) return null;
-  try {
-    const parsed = new URL(absolute);
-    if (/(\.|^)vixcloud\./i.test(parsed.hostname)) {
-      return `${parsed.origin}${parsed.pathname}`;
-    }
-  } catch (e) {
-    return absolute;
-  }
-  return absolute;
 }
 function normalizeAnimePath(pathOrUrl) {
   if (!pathOrUrl) return null;
@@ -8404,12 +8474,11 @@ function extractStreamsFromAnimePath(animePath, requestedEpisode) {
           embedUrl2 = toAbsoluteUrl(String(embedPayload || "").trim());
         }
         if (embedUrl2 && /^https?:\/\//i.test(embedUrl2)) {
-          const proxySourceUrl = getProxySafeSourceUrl(embedUrl2) || embedUrl2;
           const vixStreams = yield extractVixCloud(embedUrl2);
           if (Array.isArray(vixStreams) && vixStreams.length > 0) {
             streams.push(
               ...vixStreams.map((stream) => __spreadProps(__spreadValues({}, stream), {
-                easyProxySourceUrl: proxySourceUrl,
+                easyProxySourceUrl: embedUrl2,
                 name: `AnimeUnity - VixCloud${labelSuffix}`,
                 title: displayTitle,
                 language: stream.language || streamLanguage

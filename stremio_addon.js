@@ -1506,6 +1506,7 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
                             title: titleUI,
                             url: finalStreamUrl,
                             behaviorHints: finalBehaviorHints,
+                            headers: proxiedByEasyProxy ? undefined : (s.headers || s.behaviorHints?.headers || s.behaviorHints?.proxyHeaders?.request),
                             language: s.language
                         };
                     });

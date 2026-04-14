@@ -271,11 +271,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
       const streamPromises = links.map((link) => __async(null, null, function* () {
         try {
           if (link.includes("dropload") || link.includes("dr0pstream")) {
-            const ext = yield extractDropLoad(link);
-            if (ext && ext.url) return { url: ext.url, headers: ext.headers, name: "Guardaserie - DropLoad", title: displayName, quality: getQualityFromName("HD"), type: "direct" };
+            console.log(`[Guardaserie] DropLoad temporarily disabled: ${link}`);
+            return null;
           } else if (link.includes("supervideo")) {
-            const ext = yield extractSuperVideo(link);
-            if (ext && ext.url) return { url: ext.url, headers: ext.headers, name: "Guardaserie - SuperVideo", title: displayName, quality: getQualityFromName("HD"), type: "direct" };
+            console.log(`[Guardaserie] SuperVideo temporarily disabled: ${link}`);
+            return null;
           } else if (link.includes("mixdrop")) {
             const ext = yield extractMixDrop(link);
             if (ext && ext.url) return { url: ext.url, easyProxySourceUrl: link, headers: ext.headers, name: "Guardaserie - MixDrop", title: displayName, quality: getQualityFromName("HD"), type: "direct" };
