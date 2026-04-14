@@ -257,7 +257,8 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         title: finalDisplayName,
         url: rawPageUrl,
         easyProxySourceUrl: rawPageUrl,
-        quality: "Unknown",
+        // Stremio addon uses EasyProxy path for StreamingCommunity, so expose default quality here too.
+        quality: "1080p",
         type: "direct",
         behaviorHints: {
           notWebReady: false
@@ -285,7 +286,8 @@ async function getStreams(id, type, season, episode, providerContext = null) {
       const streamHeaders = getPlaylistHeaders(embedUrl);
       console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
 
-      let quality = "720p";
+      // StreamingCommunity generally serves FHD when playlist does not expose a clear resolution tag.
+      let quality = "1080p";
       try {
         const playlistResponse = await fetch(streamUrl, {
           headers: streamHeaders

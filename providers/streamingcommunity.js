@@ -521,7 +521,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
           title: finalDisplayName,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,
-          quality: "Unknown",
+          // Stremio addon uses EasyProxy path for StreamingCommunity, so expose default quality here too.
+          quality: "1080p",
           type: "direct",
           behaviorHints: {
             notWebReady: false
@@ -544,7 +545,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
-        let quality = "720p";
+        let quality = "1080p";
         try {
           const playlistResponse = yield fetch(streamUrl, {
             headers: streamHeaders

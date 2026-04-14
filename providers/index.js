@@ -8788,7 +8788,8 @@ var require_streamingcommunity = __commonJS({
               title: finalDisplayName,
               url: rawPageUrl,
               easyProxySourceUrl: rawPageUrl,
-              quality: "Unknown",
+              // Stremio addon uses EasyProxy path for StreamingCommunity, so expose default quality here too.
+              quality: "1080p",
               type: "direct",
               behaviorHints: {
                 notWebReady: false
@@ -8811,7 +8812,7 @@ var require_streamingcommunity = __commonJS({
             const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
             const streamHeaders = getPlaylistHeaders(embedUrl);
             console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
-            let quality = "720p";
+            let quality = "1080p";
             try {
               const playlistResponse = yield fetch(streamUrl, {
                 headers: streamHeaders
@@ -8947,19 +8948,6 @@ var require_animeunity = __commonJS({
       } catch (e) {
         return null;
       }
-    }
-    function getProxySafeSourceUrl(rawUrl) {
-      const absolute = toAbsoluteUrl(rawUrl);
-      if (!absolute) return null;
-      try {
-        const parsed = new URL(absolute);
-        if (/(\.|^)vixcloud\./i.test(parsed.hostname)) {
-          return `${parsed.origin}${parsed.pathname}`;
-        }
-      } catch (e) {
-        return absolute;
-      }
-      return absolute;
     }
     function normalizeAnimePath(pathOrUrl) {
       if (!pathOrUrl) return null;
@@ -9870,12 +9858,11 @@ var require_animeunity = __commonJS({
               embedUrl2 = toAbsoluteUrl(String(embedPayload || "").trim());
             }
             if (embedUrl2 && /^https?:\/\//i.test(embedUrl2)) {
-              const proxySourceUrl = getProxySafeSourceUrl(embedUrl2) || embedUrl2;
               const vixStreams = yield extractVixCloud(embedUrl2);
               if (Array.isArray(vixStreams) && vixStreams.length > 0) {
                 streams.push(
                   ...vixStreams.map((stream) => __spreadProps(__spreadValues({}, stream), {
-                    easyProxySourceUrl: proxySourceUrl,
+                    easyProxySourceUrl: embedUrl2,
                     name: `AnimeUnity - VixCloud${labelSuffix}`,
                     title: displayTitle,
                     language: stream.language || streamLanguage
