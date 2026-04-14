@@ -7680,6 +7680,8 @@ var require_guardahd = __commonJS({
                     name: `GuardaHD - StreamHG`,
                     title: displayName,
                     url: extracted.url,
+                    // EasyProxy must receive embed URL, not extracted master playlist URL.
+                    easyProxySourceUrl: streamUrl,
                     headers: extracted.headers,
                     quality: normalizedQuality,
                     type: "direct"

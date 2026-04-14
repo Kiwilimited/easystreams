@@ -413,6 +413,22 @@ function isMixdropStreamUrl(streamUrl) {
         || normalizedStreamUrl.includes('mxcontent');
 }
 
+function isStreamHgStream(stream) {
+    const text = [
+        stream?.url,
+        stream?.easyProxySourceUrl,
+        stream?.name,
+        stream?.title,
+        stream?.providerName
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return text.includes('streamhg')
+        || text.includes('dhcplay')
+        || text.includes('vibuxer')
+        || text.includes('premilkyway')
+        || text.includes('meadowlarkaninearts');
+}
+
 function buildEasyProxyStreamUrl(easyProxyUrl, easyProxyPassword, streamUrl) {
     const proxyBaseUrl = normalizeEasyProxyUrl(easyProxyUrl);
     const proxyPassword = String(easyProxyPassword || '').trim();
@@ -1438,8 +1454,10 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
                         const isStreamingCommunityProvider = name === 'streamingcommunity';
                         const isAnimeUnityProvider = name === 'animeunity';
                         const hasEasyProxy = Boolean(easyProxyUrl);
+                        const isStreamHgProviderStream = isStreamHgStream(s);
                         if (isStreamingCommunityProvider && !hasEasyProxy) return false;
                         if (isAnimeUnityProvider && !hasEasyProxy) return false;
+                        if (isStreamHgProviderStream && !hasEasyProxy) return false;
                         const canProxyMixdrop = Boolean(easyProxyUrl) && isMixdropStreamUrl(s.url);
                         // Global filter for specific unwanted servers
                         return (
@@ -1464,6 +1482,13 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
                             );
                             proxiedByEasyProxy = finalStreamUrl !== s.url;
                         } else if (name === 'animeunity') {
+                            finalStreamUrl = buildEasyProxyManifestUrl(
+                                easyProxyUrl,
+                                easyProxyPassword,
+                                s.easyProxySourceUrl || s.url
+                            );
+                            proxiedByEasyProxy = finalStreamUrl !== s.url;
+                        } else if (isStreamHgStream(s)) {
                             finalStreamUrl = buildEasyProxyManifestUrl(
                                 easyProxyUrl,
                                 easyProxyPassword,
