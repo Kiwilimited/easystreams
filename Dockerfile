@@ -1,6 +1,6 @@
 FROM node:18-slim
 
-# Install dependencies for Puppeteer/Chrome
+# Install dependencies for Puppeteer/Chrome and Xvfb
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y \
     libnss3 \
     lsb-release \
     xdg-utils \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Chrome
@@ -62,4 +63,5 @@ RUN node build.js || echo "Build failed, continuing anyway..."
 
 EXPOSE 7000
 
-CMD ["node", "stremio_addon.js"]
+# Start with virtual display to allow headless: false behavior
+CMD ["xvfb-run", "-a", "node", "stremio_addon.js"]

@@ -11,7 +11,10 @@ puppeteer.use(StealthPlugin());
  */
 async function getClearance(url, headless = false) {
     const isDocker = process.env.IN_DOCKER === 'true';
-    const effectiveHeadless = isDocker ? 'new' : headless;
+    
+    // In Docker usiamo headless: false perché ora abbiamo Xvfb (Virtual Display)
+    // Questo rende il bypass molto più semplice.
+    const effectiveHeadless = isDocker ? false : headless;
 
     console.log(`[CF] Avvio browser (Docker: ${isDocker}, Headless: ${effectiveHeadless})...`);
     
