@@ -40,6 +40,7 @@ const PROVIDER_LOG_PREFIXES = [
     '[AnimeWorld]',
     '[AnimeSaturn]',
     '[StreamingCommunity]',
+    '[CinemaCity]',
     '[QualityHelper]'
 ];
 
@@ -1182,6 +1183,7 @@ const providers = {
     animeworld: require('./src/animeworld/index.js'),
     animesaturn: require('./src/animesaturn/index.js'),
     streamingcommunity: require('./src/streamingcommunity/index.js'),
+    cinemacity: require('./src/cinemacity/index.js'),
 };
 
 function isLikelyAnimeRequest(type, providerId, requestContext) {
@@ -1240,15 +1242,15 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
     if (normalizedType === 'movie') {
         if (isKitsuRequest) {
             // For Kitsu movies, use anime providers first and keep non-anime fallbacks.
-            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie', 'streamingcommunity', 'guardahd'];
+            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie', 'streamingcommunity', 'guardahd', 'cinemacity'];
         } else if (isImdbRequest) {
             plan = likelyAnime
                 ? ['animeunity', 'animeworld', 'animesaturn', 'guardoserie', 'streamingcommunity', 'guardahd']
-                : ['streamingcommunity', 'guardahd', 'guardoserie'];
+                : ['streamingcommunity', 'guardahd', 'guardoserie', 'cinemacity'];
         } else if (likelyAnime || ENABLE_ANIME_FALLBACK_ON_MOVIES) {
             plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
         } else {
-            plan = ['streamingcommunity', 'guardahd', 'guardoserie'];
+            plan = ['streamingcommunity', 'guardahd', 'guardoserie', 'cinemacity'];
         }
     } else if (normalizedType === 'anime') {
         plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
@@ -1256,11 +1258,11 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
         if (isImdbRequest) {
             plan = likelyAnime
                 ? ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie']
-                : ['streamingcommunity', 'guardaserie', 'guardoserie'];
+                : ['streamingcommunity', 'guardaserie', 'guardoserie', 'cinemacity'];
         } else if (likelyAnime || ENABLE_ANIME_FALLBACK_ON_SERIES) {
             plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
         } else {
-            plan = ['streamingcommunity', 'guardaserie', 'guardoserie'];
+            plan = ['streamingcommunity', 'guardaserie', 'guardoserie', 'cinemacity'];
         }
     }
 
@@ -1439,6 +1441,7 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
                     try {
                         const providerContext = buildProviderRequestContext(requestContext);
                         providerContext.proxyUrl = easyProxyUrl;
+                        providerContext.proxyPassword = easyProxyPassword;
                         const streams = await provider.getStreams(providerId, providerType, effectiveSeason, episode, providerContext);
                         logVerbose(`[${name}] Found ${streams.length} streams`);
                         return streams;

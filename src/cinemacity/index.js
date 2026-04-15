@@ -439,6 +439,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
     try {
         const isStremioAddon = providerContext && providerContext.__requestContext === true;
         const proxyUrl = (providerContext && providerContext.proxyUrl) || (typeof global !== 'undefined' && global.CF_PROXY_URL ? global.CF_PROXY_URL : null);
+        const proxyPassword = (providerContext && providerContext.proxyPassword) || "";
 
         const searchResult = await searchByImdb(imdbId);
         if (!searchResult || !searchResult.url) {
@@ -463,7 +464,8 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                 finalTargetUrl += `${separator}s=${season}&e=${episode}`;
             }
 
-            const extractorUrl = `${proxyUrl}/extractor/video?host=city&url=${encodeURIComponent(finalTargetUrl)}&redirect_stream=true`;
+            const passwordQuery = proxyPassword ? `&api_password=${encodeURIComponent(proxyPassword)}` : '';
+            const extractorUrl = `${proxyUrl}/extractor/video.m3u8?host=city&d=${encodeURIComponent(finalTargetUrl)}&redirect_stream=true${passwordQuery}`;
 
             const result = {
                 name: "CinemaCity",
