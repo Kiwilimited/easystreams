@@ -299,7 +299,7 @@ var require_cf_bypass = __commonJS({
         }
         activeClearancePromise = (() => __async(null, null, function* () {
           var _a;
-          const flaresolverrUrl = process.env.FLARESOLVERR_URL || "http://localhost:8191/v1";
+          const flaresolverrUrl = process.env.FLARESOLVERR_URL || "http://127.0.0.1:8191/v1";
           console.log(`[CF] Richiesta bypass a FlareSolverr: ${url}`);
           try {
             const response = yield axios.post(flaresolverrUrl, {
