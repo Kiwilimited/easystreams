@@ -7482,66 +7482,56 @@ var require_formatter = __commonJS({
 // cf_bypass.js
 var require_cf_bypass = __commonJS({
   "cf_bypass.js"(exports2, module2) {
-    var puppeteer = require("puppeteer-extra");
-    var StealthPlugin = require("puppeteer-extra-plugin-stealth");
     var fs = require("fs");
-    puppeteer.use(StealthPlugin());
-    function getClearance(url, headless = false) {
+    var axios = require("axios");
+    var activeClearancePromise = null;
+    function getClearance(url) {
       return __async(this, null, function* () {
-        const isDocker = process.env.IN_DOCKER === "true";
-        const effectiveHeadless = isDocker ? false : headless;
-        console.log(`[CF] Avvio browser (Docker: ${isDocker}, Headless: ${effectiveHeadless})...`);
-        const launchOptions = {
-          headless: effectiveHeadless,
-          args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu"
-          ]
-        };
-        if (isDocker) {
-          if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-            launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-          } else if (fs.existsSync("/usr/bin/chromium")) {
-            launchOptions.executablePath = "/usr/bin/chromium";
-          } else if (fs.existsSync("/usr/bin/google-chrome")) {
-            launchOptions.executablePath = "/usr/bin/google-chrome";
-          }
+        if (activeClearancePromise) {
+          console.log(`[CF] FlareSolverr bypass gi\xE0 in corso per ${url}, attendo...`);
+          return activeClearancePromise;
         }
-        const browser = yield puppeteer.launch(launchOptions);
-        const [page] = yield browser.pages();
-        const ua = yield page.evaluate(() => navigator.userAgent);
-        try {
-          yield page.goto(url, { waitUntil: "domcontentloaded" });
-          for (let i = 0; i < 60; i++) {
-            const cookies = yield page.cookies();
-            const cf = cookies.find((c) => c.name === "cf_clearance");
-            if (cf) {
+        activeClearancePromise = (() => __async(null, null, function* () {
+          var _a;
+          const flaresolverrUrl = process.env.FLARESOLVERR_URL || "http://localhost:8191/v1";
+          console.log(`[CF] Richiesta bypass a FlareSolverr: ${url}`);
+          try {
+            const response = yield axios.post(flaresolverrUrl, {
+              cmd: "request.get",
+              url,
+              maxTimeout: 6e4
+            }, {
+              timeout: 7e4,
+              headers: { "Content-Type": "application/json" }
+            });
+            if (response.data && response.data.status === "ok") {
+              const solution = response.data.solution;
+              const cookies = solution.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+              const cf_clearance = (_a = solution.cookies.find((c) => c.name === "cf_clearance")) == null ? void 0 : _a.value;
               const data = {
-                userAgent: ua,
-                cookies: cookies.map((c) => `${c.name}=${c.value}`).join("; "),
-                cf_clearance: cf.value,
+                userAgent: solution.userAgent,
+                cookies,
+                cf_clearance: cf_clearance || null,
                 timestamp: Date.now()
               };
               fs.writeFileSync("cf-session.json", JSON.stringify(data, null, 2));
-              yield browser.close();
+              console.log(`[CF] FlareSolverr: Bypass completato con successo per ${url}`);
               return data;
+            } else {
+              const errorMsg = response.data ? response.data.message : "Risposta non valida da FlareSolverr";
+              throw new Error(errorMsg);
             }
-            try {
-              const frames = page.frames();
-              const cfFrame = frames.find((f) => f.url().includes("turnstile"));
-              if (cfFrame) yield cfFrame.click("#challenge-stage").catch(() => {
-              });
-            } catch (e) {
+          } catch (error) {
+            console.error(`[CF] Errore FlareSolverr: ${error.message}`);
+            if (error.code === "ECONNREFUSED") {
+              console.error(`[CF] ASSICURATI CHE FLARESOLVERR SIA ATTIVO SU ${flaresolverrUrl}`);
             }
-            yield new Promise((r) => setTimeout(r, 1e3));
+            throw error;
+          } finally {
+            activeClearancePromise = null;
           }
-          throw new Error("Bypass timeout");
-        } catch (err) {
-          yield browser.close();
-          throw err;
-        }
+        }))();
+        return activeClearancePromise;
       });
     }
     module2.exports = { getClearance };

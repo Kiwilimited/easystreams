@@ -11,9 +11,18 @@ services:
       - NODE_ENV=production
       - VERBOSE_LOGS=0
       - QUIET_PROVIDER_LOGS=1
-      #- CF_PROXY_URL=https://********.workers.dev/
+      - FLARESOLVERR_URL=http://flaresolverr:8191/v1
     restart: unless-stopped
-    # Optional: Mount source code for development (uncomment if needed)
-    # volumes:
-    #   - ./src:/app/src
-    #   - ./stremio_addon.js:/app/stremio_addon.js
+    depends_on:
+      - flaresolverr
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - CAPTCHA_SOLVER=none
+      - TZ=Europe/Rome
+    ports:
+      - "8191:8191"
+    restart: unless-stopped

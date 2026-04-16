@@ -1,82 +1,64 @@
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
-
-puppeteer.use(StealthPlugin());
+const axios = require('axios');
 
 /**
- * Risolve la sfida Cloudflare e restituisce i cookie/UA
- * @param {string} url - URL target
- * @param {boolean} headless - Se vero, nasconde il browser
+ * Risolve la sfida Cloudflare usando esclusivamente FlareSolverr
+ * @param {string} url - URL target della sfida
  */
-async function getClearance(url, headless = false) {
-    const isDocker = process.env.IN_DOCKER === 'true';
-    
-    // In Docker usiamo headless: false perché ora abbiamo Xvfb (Virtual Display)
-    // Questo rende il bypass molto più semplice.
-    const effectiveHeadless = isDocker ? false : headless;
+let activeClearancePromise = null;
 
-    console.log(`[CF] Avvio browser (Docker: ${isDocker}, Headless: ${effectiveHeadless})...`);
-    
-    const launchOptions = {
-        headless: effectiveHeadless,
-        args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu'
-        ]
-    };
-
-    // Su Linux/Docker cerchiamo l'installazione di Chrome/Chromium
-    if (isDocker) {
-        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-            launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-        } else if (fs.existsSync('/usr/bin/chromium')) {
-            launchOptions.executablePath = '/usr/bin/chromium';
-        } else if (fs.existsSync('/usr/bin/google-chrome')) {
-            launchOptions.executablePath = '/usr/bin/google-chrome';
-        }
+async function getClearance(url) {
+    if (activeClearancePromise) {
+        console.log(`[CF] FlareSolverr bypass già in corso per ${url}, attendo...`);
+        return activeClearancePromise;
     }
 
-    const browser = await puppeteer.launch(launchOptions);
-
-    const [page] = await browser.pages();
-    const ua = await page.evaluate(() => navigator.userAgent);
-
-    try {
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
+    activeClearancePromise = (async () => {
+        const flaresolverrUrl = process.env.FLARESOLVERR_URL || 'http://localhost:8191/v1';
         
-        for (let i = 0; i < 60; i++) {
-            const cookies = await page.cookies();
-            const cf = cookies.find(c => c.name === 'cf_clearance');
-            
-            if (cf) {
+        console.log(`[CF] Richiesta bypass a FlareSolverr: ${url}`);
+        
+        try {
+            const response = await axios.post(flaresolverrUrl, {
+                cmd: 'request.get',
+                url: url,
+                maxTimeout: 60000
+            }, { 
+                timeout: 70000,
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (response.data && response.data.status === 'ok') {
+                const solution = response.data.solution;
+                const cookies = solution.cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                const cf_clearance = solution.cookies.find(c => c.name === 'cf_clearance')?.value;
+
                 const data = {
-                    userAgent: ua,
-                    cookies: cookies.map(c => `${c.name}=${c.value}`).join('; '),
-                    cf_clearance: cf.value,
+                    userAgent: solution.userAgent,
+                    cookies: cookies,
+                    cf_clearance: cf_clearance || null,
                     timestamp: Date.now()
                 };
+
                 fs.writeFileSync('cf-session.json', JSON.stringify(data, null, 2));
-                await browser.close();
+                console.log(`[CF] FlareSolverr: Bypass completato con successo per ${url}`);
                 return data;
+            } else {
+                const errorMsg = response.data ? response.data.message : 'Risposta non valida da FlareSolverr';
+                throw new Error(errorMsg);
             }
-
-            // Click Turnstile
-            try {
-                const frames = page.frames();
-                const cfFrame = frames.find(f => f.url().includes('turnstile'));
-                if (cfFrame) await cfFrame.click('#challenge-stage').catch(() => {});
-            } catch (e) {}
-
-            await new Promise(r => setTimeout(r, 1000));
+        } catch (error) {
+            console.error(`[CF] Errore FlareSolverr: ${error.message}`);
+            if (error.code === 'ECONNREFUSED') {
+                console.error(`[CF] ASSICURATI CHE FLARESOLVERR SIA ATTIVO SU ${flaresolverrUrl}`);
+            }
+            throw error;
+        } finally {
+            activeClearancePromise = null;
         }
-        throw new Error('Bypass timeout');
-    } catch (err) {
-        await browser.close();
-        throw err;
-    }
+    })();
+
+    return activeClearancePromise;
 }
 
 module.exports = { getClearance };
