@@ -1,72 +1,26 @@
 FROM node:18-slim
 
-# Install dependencies for Puppeteer/Chrome and Xvfb
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    ca-certificates \
-    procps \
-    libxss1 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libc6 \
-    libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
-    libgbm1 \
-    libgcc1 \
-    libgconf-2-4 \
-    libgdk-pixbuf2.0-0 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libstdc++6 \
-    libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
-    libxtst6 \
-    fonts-liberation \
-    libnss3 \
-    lsb-release \
-    xdg-utils \
-    xvfb \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Chrome
-RUN apt-get update && apt-get install -y chromium || apt-get install -y google-chrome-stable
+# Install only basic CA certificates for HTTPS
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Env flag for the code
+# Enable productions optimizations
+ENV NODE_ENV=production
 ENV IN_DOCKER=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV DISPLAY=:99
 
+# Copy package files and install dependencies
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm install --omit=dev
 
+# Copy the rest of the application
 COPY . .
 
-# Build providers
+# Build providers (requires node and esbuild which is in devDeps or main deps)
+# Note: build.js is needed to bundle the providers
 RUN node build.js || echo "Build failed, continuing anyway..."
-
-# Ensure start script is executable
-RUN chmod +x start.sh
 
 EXPOSE 7000
 
-# Use the startup script
-CMD ["./start.sh"]
+# Start the addon directly
+CMD ["node", "stremio_addon.js"]
