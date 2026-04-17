@@ -14,12 +14,13 @@ async function getClearance(url) {
     }
 
     activeClearancePromise = (async () => {
-        const flaresolverrUrl = process.env.FLARESOLVERR_URL || 'http://127.0.0.1:8191/v1';
+        // Byparr gira di default sulla porta 8191, uguale a FlareSolverr
+        const byparrUrl = process.env.FLARESOLVERR_URL || 'http://127.0.0.1:8191/v1';
         
-        console.log(`[CF] Richiesta bypass a FlareSolverr: ${url}`);
+        console.log(`[CF] Richiesta bypass a Byparr: ${url}`);
         
         try {
-            const response = await axios.post(flaresolverrUrl, {
+            const response = await axios.post(byparrUrl, {
                 cmd: 'request.get',
                 url: url,
                 maxTimeout: 60000
@@ -41,16 +42,16 @@ async function getClearance(url) {
                 };
 
                 fs.writeFileSync('cf-session.json', JSON.stringify(data, null, 2));
-                console.log(`[CF] FlareSolverr: Bypass completato con successo per ${url}`);
+                console.log(`[CF] Byparr: Bypass completato con successo per ${url}`);
                 return data;
             } else {
-                const errorMsg = response.data ? response.data.message : 'Risposta non valida da FlareSolverr';
+                const errorMsg = response.data ? response.data.message : 'Risposta non valida da Byparr';
                 throw new Error(errorMsg);
             }
         } catch (error) {
-            console.error(`[CF] Errore FlareSolverr: ${error.message}`);
+            console.error(`[CF] Errore Byparr: ${error.message}`);
             if (error.code === 'ECONNREFUSED') {
-                console.error(`[CF] ASSICURATI CHE FLARESOLVERR SIA ATTIVO SU ${flaresolverrUrl}`);
+                console.error(`[CF] ASSICURATI CHE BYPARR SIA ATTIVO SU ${byparrUrl}`);
             }
             throw error;
         } finally {

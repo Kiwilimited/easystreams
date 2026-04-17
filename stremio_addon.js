@@ -27,6 +27,7 @@ if (!global.fetch) {
 
 const https = require('https');
 const http = require('http');
+const byparr = require('./byparr_manager');
 
 const IS_PRODUCTION = false;
 const VERBOSE_LOGS = true;
@@ -2169,8 +2170,16 @@ async function warmup() {
     }
 }
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
     logInfo(`Stremio Addon running at http://localhost:${PORT}`);
+    
+    // Avvia Byparr se necessario
+    try {
+        await byparr.start();
+    } catch (e) {
+        console.error('[Addon] Errore avvio Byparr:', e.message);
+    }
+
     // Avvia warmup in background
     warmup();
 });
@@ -2178,6 +2187,19 @@ const server = app.listen(PORT, () => {
 // Graceful Shutdown
 process.on('SIGTERM', () => {
     logInfo('[Shutdown] SIGTERM received. Closing server...');
+    byparr.stop();
+    server.close(() => {
+        logInfo('[Shutdown] Server closed.');
+        httpsAgent.destroy();
+        httpAgent.destroy();
+        logInfo('[Shutdown] Agents destroyed. Exiting.');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    logInfo('[Shutdown] SIGINT received. Closing server...');
+    byparr.stop();
     server.close(() => {
         logInfo('[Shutdown] Server closed.');
         httpsAgent.destroy();
