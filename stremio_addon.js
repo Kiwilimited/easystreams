@@ -1302,11 +1302,6 @@ const builder = new addonBuilder({
             key: 'easyProxyPassword',
             type: 'text',
             title: 'EasyProxy API password'
-        },
-        {
-            key: 'easyProxyPassword',
-            type: 'text',
-            title: 'EasyProxy API password'
         }
     ]
 });
@@ -2131,16 +2126,22 @@ app.get('/', (req, res) => {
 app.use('/', addonRouter);
 
 // API per Nuvio / Client-side
-app.get('/resolve/guardoserie', async (req, res) => {
+app.get('/resolve/:provider', async (req, res) => {
+    const { provider: providerName } = req.params;
     const { id, type, s, ep } = req.query;
+
     if (!id || !type) {
         return res.status(400).json({ error: 'Missing parameters (id, type)' });
     }
 
-    console.log(`[API] Richiesta remota Guardoserie: ${type} ${id} ${s}x${ep}`);
+    const provider = providers[providerName];
+    if (!provider) {
+        return res.status(404).json({ error: `Provider '${providerName}' not found` });
+    }
+
+    console.log(`[API] Richiesta remota ${providerName}: ${type} ${id} ${s}x${ep}`);
 
     try {
-        const provider = providers.guardoserie;
         const season = parseInt(s) || 1;
         const episode = parseInt(ep) || 1;
 
@@ -2151,7 +2152,7 @@ app.get('/resolve/guardoserie', async (req, res) => {
         const streams = await provider.getStreams(id, type, season, episode, providerContext);
         res.json({ streams });
     } catch (e) {
-        console.error('[API] Errore risoluzione remota:', e.message);
+        console.error(`[API] Errore risoluzione remota ${providerName}:`, e.message);
         res.status(500).json({ error: e.message });
     }
 });

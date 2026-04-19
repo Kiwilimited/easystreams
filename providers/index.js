@@ -12610,6 +12610,7 @@ function getStreams(id, type, season, episode) {
         promises.push(
           guardoserie.getStreams(id, normalizedType, effectiveSeason, normalizedEpisode, sharedContext).then((s) => ({ provider: "Guardoserie", streams: s, status: "fulfilled" })).catch((e) => ({ provider: "Guardoserie", error: e, status: "rejected" }))
         );
+        continue;
       }
       if (providerName === "cinemacity") {
         promises.push(

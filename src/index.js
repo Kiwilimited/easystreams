@@ -234,6 +234,7 @@ async function getStreams(id, type, season, episode) {
                     .then(s => ({ provider: 'Guardoserie', streams: s, status: 'fulfilled' }))
                     .catch(e => ({ provider: 'Guardoserie', error: e, status: 'rejected' }))
             );
+            continue;
         }
         if (providerName === 'cinemacity') {
             promises.push(
