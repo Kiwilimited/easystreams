@@ -38,9 +38,9 @@ class FlareSolverrManager {
                 } else {
                     const arch = process.arch;
                     if (arch === 'arm64') {
-                        downloadUrl = 'https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_arm64.tar.gz';
+                        downloadUrl = 'https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_aarch64.tar.gz';
                     } else if (arch === 'arm') {
-                        downloadUrl = 'https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_arm32.tar.gz';
+                        downloadUrl = 'https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_armv7l.tar.gz';
                     } else {
                         downloadUrl = 'https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_x64.tar.gz';
                     }

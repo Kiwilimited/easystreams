@@ -44,12 +44,14 @@ ENV HEADLESS=true
 ENV BROWSER_TIMEOUT=60000
 ENV DISPLAY=:99
 
-# Pre-install FlareSolverr based on architecture
+# Pre-install FlareSolverr based on architecture with CORRECT filenames
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
         FLARE_URL="https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_x64.tar.gz"; \
     elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        FLARE_URL="https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_arm64.tar.gz"; \
+        FLARE_URL="https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_aarch64.tar.gz"; \
+    elif [ "$ARCH" = "armv7l" ]; then \
+        FLARE_URL="https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_armv7l.tar.gz"; \
     else \
         FLARE_URL="https://github.com/FlareSolverr/FlareSolverr/releases/latest/download/flaresolverr_linux_arm32.tar.gz"; \
     fi && \
