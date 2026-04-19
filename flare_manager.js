@@ -114,36 +114,45 @@ class FlareSolverrManager {
         console.log('[FlareSolverr] Avvio servizio...');
 
         return new Promise((resolve, reject) => {
-            // Cerchiamo l'eseguibile
-            let exePath = isWin 
-                ? path.join(this.fsDir, 'flaresolverr.exe')
-                : path.join(this.fsDir, 'flaresolverr');
-            
-            // Su Linux, se 'flaresolverr' è una cartella, il binario è dentro
-            if (!isWin && fs.existsSync(exePath) && fs.statSync(exePath).isDirectory()) {
-                exePath = path.join(exePath, 'flaresolverr');
-            }
+            let exePath;
+            let spawnArgs = [];
 
-            if (isWin && !fs.existsSync(exePath)) {
-                exePath = path.join(this.fsDir, 'flaresolverr', 'flaresolverr.exe');
-            }
+            if (process.env.IN_DOCKER === 'true') {
+                // In Docker usiamo la versione installata dai sorgenti (stile EasyProxy)
+                exePath = 'python3';
+                spawnArgs = ['/app/flaresolverr-src/src/flaresolverr.py'];
+                console.log('[FlareSolverr] Avvio da sorgenti Python (Docker Mode)...');
+            } else {
+                // Su Windows o installazione locale manuale
+                exePath = isWin 
+                    ? path.join(this.fsDir, 'flaresolverr.exe')
+                    : path.join(this.fsDir, 'flaresolverr');
+                
+                if (!isWin && fs.existsSync(exePath) && fs.statSync(exePath).isDirectory()) {
+                    exePath = path.join(exePath, 'flaresolverr');
+                }
 
-            if (!fs.existsSync(exePath)) {
-                console.error('[FlareSolverr] Eseguibile non trovato in:', exePath);
-                this.isStarting = false;
-                return resolve();
-            }
+                if (isWin && !fs.existsSync(exePath)) {
+                    exePath = path.join(this.fsDir, 'flaresolverr', 'flaresolverr.exe');
+                }
 
-            // Ultimo controllo permessi sul file reale
-            if (!isWin) {
-                try {
-                    fs.chmodSync(exePath, 0o755);
-                } catch (e) {}
+                if (!fs.existsSync(exePath)) {
+                    console.error('[FlareSolverr] Eseguibile non trovato in:', exePath);
+                    this.isStarting = false;
+                    return resolve();
+                }
+
+                // Ultimo controllo permessi sul file reale
+                if (!isWin) {
+                    try {
+                        fs.chmodSync(exePath, 0o755);
+                    } catch (e) {}
+                }
             }
 
             try {
-                this.process = spawn(exePath, [], {
-                    cwd: path.dirname(exePath),
+                this.process = spawn(exePath, spawnArgs, {
+                    cwd: process.env.IN_DOCKER === 'true' ? '/app/flaresolverr-src' : path.dirname(exePath),
                     stdio: 'pipe',
                     env: { ...process.env, PORT: this.port, HOST: '0.0.0.0', LOG_LEVEL: 'info', HEADLESS: 'true', BROWSER_TIMEOUT: '60000' },
                     shell: !isWin
