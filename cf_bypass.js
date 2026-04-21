@@ -5,26 +5,33 @@ const axios = require('axios');
  * Risolve la sfida Cloudflare usando esclusivamente FlareSolverr
  * @param {string} url - URL target della sfida
  */
-let activeClearancePromise = null;
-
-async function getClearance(url) {
-    if (activeClearancePromise) {
-        console.log(`[CF] FlareSolverr bypass già in corso per ${url}, attendo...`);
-        return activeClearancePromise;
+const activeBypasses = new Map();
+ 
+async function getClearance(url, provider = 'default', options = {}) {
+    const sessionFile = `cf-session-${provider}.json`;
+    
+    if (activeBypasses.has(provider)) {
+        console.log(`[CF] FlareSolverr bypass già in corso per il provider [${provider}], attendo...`);
+        return activeBypasses.get(provider);
     }
+ 
+    const bypassPromise = (async () => {
+        const FLARE_URL = process.env.FLARE_URL || 'http://127.0.0.1:8191/v1';
+        
+        console.log(`[CF] Richiesta bypass a FlareSolverr: ${url}`);
+        
+        const payload = {
+            cmd: options.method === 'POST' ? 'request.post' : 'request.get',
+            url: url,
+            maxTimeout: 60000
+        };
 
-    activeClearancePromise = (async () => {
-        // Byparr gira di default sulla porta 8191, uguale a FlareSolverr
-        const byparrUrl = process.env.FLARESOLVERR_URL || 'http://127.0.0.1:8191/v1';
-        
-        console.log(`[CF] Richiesta bypass a Byparr: ${url}`);
-        
+        if (options.method === 'POST' && options.body) {
+            payload.postData = options.body;
+        }
+
         try {
-            const response = await axios.post(byparrUrl, {
-                cmd: 'request.get',
-                url: url,
-                maxTimeout: 60000
-            }, { 
+            const response = await axios.post(FLARE_URL, payload, { 
                 timeout: 70000,
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -38,28 +45,30 @@ async function getClearance(url) {
                     userAgent: solution.userAgent,
                     cookies: cookies,
                     cf_clearance: cf_clearance || null,
+                    response: solution.response,
                     timestamp: Date.now()
                 };
 
-                fs.writeFileSync('cf-session.json', JSON.stringify(data, null, 2));
-                console.log(`[CF] Byparr: Bypass completato con successo per ${url}`);
+                fs.writeFileSync(sessionFile, JSON.stringify(data, null, 2));
+                console.log(`[CF] FlareSolverr: Bypass completato con successo per ${url}`);
                 return data;
             } else {
-                const errorMsg = response.data ? response.data.message : 'Risposta non valida da Byparr';
+                const errorMsg = response.data ? response.data.message : 'Risposta non valida da FlareSolverr';
                 throw new Error(errorMsg);
             }
         } catch (error) {
-            console.error(`[CF] Errore Byparr: ${error.message}`);
+            console.error(`[CF] Errore FlareSolverr: ${error.message}`);
             if (error.code === 'ECONNREFUSED') {
-                console.error(`[CF] ASSICURATI CHE BYPARR SIA ATTIVO SU ${byparrUrl}`);
+                console.error(`[CF] ASSICURATI CHE FLARESOLVERR SIA ATTIVO SU ${FLARE_URL}`);
             }
             throw error;
         } finally {
-            activeClearancePromise = null;
+            activeBypasses.delete(provider);
         }
     })();
 
-    return activeClearancePromise;
+    activeBypasses.set(provider, bypassPromise);
+    return bypassPromise;
 }
 
 module.exports = { getClearance };

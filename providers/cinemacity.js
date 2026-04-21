@@ -286,10 +286,186 @@ var require_quality_helper = __commonJS({
   }
 });
 
+// cf_bypass.js
+var require_cf_bypass = __commonJS({
+  "cf_bypass.js"(exports2, module2) {
+    var fs = require("fs");
+    var axios = require("axios");
+    var activeBypasses = /* @__PURE__ */ new Map();
+    function getClearance(_0) {
+      return __async(this, arguments, function* (url, provider = "default", options = {}) {
+        const sessionFile = `cf-session-${provider}.json`;
+        if (activeBypasses.has(provider)) {
+          console.log(`[CF] FlareSolverr bypass gi\xE0 in corso per il provider [${provider}], attendo...`);
+          return activeBypasses.get(provider);
+        }
+        const bypassPromise = (() => __async(null, null, function* () {
+          var _a;
+          const FLARE_URL = process.env.FLARE_URL || "http://127.0.0.1:8191/v1";
+          console.log(`[CF] Richiesta bypass a FlareSolverr: ${url}`);
+          const payload = {
+            cmd: options.method === "POST" ? "request.post" : "request.get",
+            url,
+            maxTimeout: 6e4
+          };
+          if (options.method === "POST" && options.body) {
+            payload.postData = options.body;
+          }
+          try {
+            const response = yield axios.post(FLARE_URL, payload, {
+              timeout: 7e4,
+              headers: { "Content-Type": "application/json" }
+            });
+            if (response.data && response.data.status === "ok") {
+              const solution = response.data.solution;
+              const cookies = solution.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+              const cf_clearance = (_a = solution.cookies.find((c) => c.name === "cf_clearance")) == null ? void 0 : _a.value;
+              const data = {
+                userAgent: solution.userAgent,
+                cookies,
+                cf_clearance: cf_clearance || null,
+                response: solution.response,
+                timestamp: Date.now()
+              };
+              fs.writeFileSync(sessionFile, JSON.stringify(data, null, 2));
+              console.log(`[CF] FlareSolverr: Bypass completato con successo per ${url}`);
+              return data;
+            } else {
+              const errorMsg = response.data ? response.data.message : "Risposta non valida da FlareSolverr";
+              throw new Error(errorMsg);
+            }
+          } catch (error) {
+            console.error(`[CF] Errore FlareSolverr: ${error.message}`);
+            if (error.code === "ECONNREFUSED") {
+              console.error(`[CF] ASSICURATI CHE FLARESOLVERR SIA ATTIVO SU ${FLARE_URL}`);
+            }
+            throw error;
+          } finally {
+            activeBypasses.delete(provider);
+          }
+        }))();
+        activeBypasses.set(provider, bypassPromise);
+        return bypassPromise;
+      });
+    }
+    module2.exports = { getClearance };
+  }
+});
+
+// src/utils/cf_handler.js
+var require_cf_handler = __commonJS({
+  "src/utils/cf_handler.js"(exports2, module2) {
+    var axios = require("axios");
+    var fs = require("fs");
+    var path = require("path");
+    var { getClearance } = require_cf_bypass();
+    var https = require("https");
+    var http = require("http");
+    var agentOptions = {
+      keepAlive: true,
+      maxSockets: 250,
+      maxFreeSockets: 100,
+      timeout: 3e4,
+      keepAliveMsecs: 3e4
+    };
+    var httpsAgent = new https.Agent(agentOptions);
+    var httpAgent = new http.Agent(agentOptions);
+    var requestCache = /* @__PURE__ */ new Map();
+    var CACHE_TTL = 6e5;
+    function smartFetch2(_0, _1) {
+      return __async(this, arguments, function* (url, domain, options = {}) {
+        const provider = options.provider || domain.replace(/https?:\/\//, "").split(".")[0];
+        const sessionFile = path.join(__dirname, `../../cf-session-${provider}.json`);
+        const cacheKey = `${options.method || "GET"}:${url}:${options.body || ""}`;
+        if (requestCache.has(cacheKey)) {
+          const cached = requestCache.get(cacheKey);
+          if (Date.now() - cached.timestamp < CACHE_TTL) {
+            return cached.data;
+          }
+        }
+        const loadSession = () => {
+          if (fs.existsSync(sessionFile)) {
+            try {
+              return JSON.parse(fs.readFileSync(sessionFile, "utf8"));
+            } catch (e) {
+              return {};
+            }
+          }
+          return {};
+        };
+        let session = loadSession();
+        const doRequest = (sess) => __async(null, null, function* () {
+          const mergedHeaders = __spreadValues({
+            "User-Agent": sess.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+          }, options.headers);
+          if (sess.cookies) {
+            mergedHeaders.Cookie = sess.cookies;
+          }
+          const response = yield axios({
+            url,
+            method: options.method || "GET",
+            data: options.body,
+            headers: mergedHeaders,
+            httpsAgent,
+            httpAgent,
+            timeout: options.timeout || 2e4,
+            validateStatus: false
+          });
+          const data = response.data;
+          if (response.status >= 400 && response.status !== 403 && response.status !== 503) {
+            const err = new Error(`HTTP ${response.status}`);
+            err.response = { status: response.status, data };
+            throw err;
+          }
+          return { data, status: response.status };
+        });
+        try {
+          const res = yield doRequest(session);
+          if (res.status === 403 || res.status === 503) {
+            throw { response: res };
+          }
+          requestCache.set(cacheKey, { data: res.data, timestamp: Date.now() });
+          return res.data;
+        } catch (err) {
+          if (err.response && (err.response.status === 403 || err.response.status === 503)) {
+            console.warn(`[CF-HANDLER][${provider}] Blocco rilevato. Avvio bypass per ${url}...`);
+            const newSession = yield getClearance(url, provider, options);
+            const res = yield doRequest(newSession);
+            requestCache.set(cacheKey, { data: res.data, timestamp: Date.now() });
+            return res.data;
+          }
+          throw err;
+        }
+      });
+    }
+    module2.exports = { smartFetch: smartFetch2 };
+  }
+});
+
 // src/cinemacity/index.js
 var { formatStream } = require_formatter();
 var { checkQualityFromPlaylist } = require_quality_helper();
 var { fetchWithTimeout } = require_fetch_helper();
+var IS_SERVER = typeof process !== "undefined" && process.versions && process.versions.node;
+if (!IS_SERVER) {
+  module.exports = {
+    getStreams: (id, type, season, episode) => __async(null, null, function* () {
+      try {
+        const url = `https://easystreams.realbestia.com/resolve/cinemacity?id=${id}&type=${type}&s=${season || 1}&ep=${episode || 1}`;
+        const response = yield fetch(url);
+        const data = yield response.json();
+        return data.streams || [];
+      } catch (e) {
+        console.error("[CinemaCity-Client] API Error:", e.message);
+        return [];
+      }
+    })
+  };
+  return;
+}
+var { smartFetch } = require_cf_handler();
 var BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 function base64Decode(str) {
   try {
@@ -397,16 +573,12 @@ function searchByImdb(imdbId) {
     const trySearch = (query) => __async(null, null, function* () {
       const searchUrl = `${BASE_URL}/index.php?do=search&subaction=search&story=${query}`;
       try {
-        const response = yield fetchWithTimeout(searchUrl, {
+        const html = yield smartFetch(searchUrl, BASE_URL, {
           timeout: FETCH_TIMEOUT,
           headers: {
-            "User-Agent": USER_AGENT,
-            "Cookie": cookies || "",
             "Referer": `${BASE_URL}/`
           }
         });
-        if (!response.ok) return null;
-        const html = yield response.text();
         const resultMatch = html.match(/Found\s+(\d+)\s+responses/i) || html.match(/Trovat[io]\s+(\d+)\s+risultat[io]/i) || html.match(/Query results\s*\d+\s*-\s*(\d+)/i);
         if (!resultMatch || parseInt(resultMatch[1]) === 0) {
           if (!html.includes(query)) return null;
@@ -646,7 +818,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         }
         const passwordQuery = proxyPassword ? `&api_password=${encodeURIComponent(proxyPassword)}` : "";
         const extractorUrl = `${proxyUrl}/extractor/video.m3u8?host=city&d=${encodeURIComponent(finalTargetUrl)}&redirect_stream=true${passwordQuery}`;
-        const result2 = {
+        const stremioResult = {
           name: "CinemaCity",
           title: movieTitle,
           url: extractorUrl,
@@ -656,20 +828,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
             notWebReady: true
           }
         };
-        return [formatStream(result2, "CinemaCity")];
+        return [formatStream(stremioResult, "CinemaCity")];
       }
-      const cookies = getSessionCookies();
-      const response = yield fetchWithTimeout(movieUrl, {
+      const html = yield smartFetch(movieUrl, BASE_URL, {
         timeout: FETCH_TIMEOUT,
         headers: {
-          "User-Agent": USER_AGENT,
-          "Cookie": cookies,
           "Referer": `${BASE_URL}/`
         }
       });
-      if (!response.ok) return [];
-      const html = yield response.text();
       const playerReferer = extractPlayerReferer(html, movieUrl);
+      const cookies = getSessionCookies();
       const atobRegex = /atob\s*\(\s*['"](.*?)['"]\s*\)/gi;
       let match;
       let fileData = null;
@@ -721,7 +889,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const streamUrl = pickStream(fileData, type, season, episode);
       if (!streamUrl) return [];
-      const results = [];
       const streamHeaders = {
         "User-Agent": USER_AGENT,
         "Referer": playerReferer,
@@ -731,7 +898,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         "Connection": "keep-alive",
         "Cookie": cookies
       };
-      const result = {
+      const finalResult = {
         name: "CinemaCity",
         title: movieTitle,
         url: streamUrl,
@@ -743,11 +910,10 @@ function getStreams(id, type, season, episode, providerContext = null) {
         }
       };
       if (streamUrl.includes(".m3u8")) {
-        const detectedQuality = yield checkQualityFromPlaylist(streamUrl, result.headers);
-        if (detectedQuality) result.quality = detectedQuality;
+        const detectedQuality = yield checkQualityFromPlaylist(streamUrl, finalResult.headers);
+        if (detectedQuality) finalResult.quality = detectedQuality;
       }
-      results.push(formatStream(result, "CinemaCity"));
-      return results;
+      return [formatStream(finalResult, "CinemaCity")];
     } catch (e) {
       console.error("[CinemaCity] Error:", e);
       return [];

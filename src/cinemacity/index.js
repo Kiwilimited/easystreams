@@ -4,6 +4,29 @@ const { formatStream } = require('../formatter.js');
 const { checkQualityFromPlaylist } = require('../quality_helper.js');
 const { fetchWithTimeout } = require('../fetch_helper.js');
 
+// Environment detection: Server (Node) or Client (Nuvio/React Native)
+const IS_SERVER = typeof process !== 'undefined' && process.versions && process.versions.node;
+
+if (!IS_SERVER) {
+    // NUVIO CLIENT: Use remote API to avoid Cloudflare blocks
+    module.exports = {
+        getStreams: async (id, type, season, episode) => {
+            try {
+                const url = `https://easystreams.realbestia.com/resolve/cinemacity?id=${id}&type=${type}&s=${season || 1}&ep=${episode || 1}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                return data.streams || [];
+            } catch (e) {
+                console.error('[CinemaCity-Client] API Error:', e.message);
+                return [];
+            }
+        }
+    };
+    return;
+}
+
+const { smartFetch } = require('../utils/cf_handler');
+
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 
 // Cross-platform Base64 decoder for Node.js and React Native (Nuvio/Hermes)
@@ -135,17 +158,12 @@ async function searchByImdb(imdbId) {
     const trySearch = async (query) => {
         const searchUrl = `${BASE_URL}/index.php?do=search&subaction=search&story=${query}`;
         try {
-            const response = await fetchWithTimeout(searchUrl, {
+            const html = await smartFetch(searchUrl, BASE_URL, {
                 timeout: FETCH_TIMEOUT,
                 headers: {
-                    "User-Agent": USER_AGENT,
-                    "Cookie": cookies || "",
                     "Referer": `${BASE_URL}/`
                 }
             });
-
-            if (!response.ok) return null;
-            const html = await response.text();
 
             // DLE search result markers
             const resultMatch = html.match(/Found\s+(\d+)\s+responses/i) ||
@@ -467,7 +485,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
             const passwordQuery = proxyPassword ? `&api_password=${encodeURIComponent(proxyPassword)}` : '';
             const extractorUrl = `${proxyUrl}/extractor/video.m3u8?host=city&d=${encodeURIComponent(finalTargetUrl)}&redirect_stream=true${passwordQuery}`;
 
-            const result = {
+            const stremioResult = {
                 name: "CinemaCity",
                 title: movieTitle,
                 url: extractorUrl,
@@ -478,28 +496,23 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                 }
             };
 
-            return [formatStream(result, "CinemaCity")];
+            return [formatStream(stremioResult, "CinemaCity")];
         }
 
-        // Logic for Nuvio Plugin (direct HTML extraction)
-        const cookies = getSessionCookies();
-        const response = await fetchWithTimeout(movieUrl, {
+        // Logic for Server extraction
+        const html = await smartFetch(movieUrl, BASE_URL, {
             timeout: FETCH_TIMEOUT,
             headers: {
-                "User-Agent": USER_AGENT,
-                "Cookie": cookies,
                 "Referer": `${BASE_URL}/`
             }
         });
 
-        if (!response.ok) return [];
-        const html = await response.text();
         const playerReferer = extractPlayerReferer(html, movieUrl);
+        const cookies = getSessionCookies();
 
         // Cinemacity uses two mechanisms:
         // A) file:atob("...JSON...")
         // B) eval(atob("...JS script containing file:'[...JSON...]'..."))
-        // So we match all atob calls and try to extract the JSON.
         const atobRegex = /atob\s*\(\s*['"](.*?)['"]\s*\)/gi;
         let match;
         let fileData = null;
@@ -507,7 +520,6 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         while ((match = atobRegex.exec(html)) !== null) {
             const encoded = match[1];
             try {
-                // Ignore very short strings
                 if (encoded.length < 50) continue;
 
                 let decoded;
@@ -519,7 +531,6 @@ async function getStreams(id, type, season, episode, providerContext = null) {
 
                 if (!decoded) continue;
 
-                // Mechanism A: the decoded payload is the JSON itself
                 if (decoded.trim().startsWith("[")) {
                     try {
                         fileData = JSON.parse(decoded);
@@ -527,11 +538,9 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                     } catch (e) { }
                 }
 
-                // Mechanism B: the decoded payload is a JS script containing the JSON in a "file:" property
                 const rawJson = extractJsonArray(decoded);
                 if (rawJson) {
                     try {
-                        // Sometimes the string is escaped
                         const cleanJson = rawJson.replace(/\\(.)/g, '$1');
                         fileData = JSON.parse(cleanJson);
                     } catch (e) {
@@ -542,7 +551,6 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                     if (fileData && fileData.length > 0) break;
                 }
 
-                // Fallback for single file streams
                 const fileMatch = decoded.match(/(?:file|sources)\s*:\s*['"](.*?)['"]/i);
                 if (fileMatch) {
                     const url = fileMatch[1];
@@ -563,7 +571,6 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         const streamUrl = pickStream(fileData, type, season, episode);
         if (!streamUrl) return [];
 
-        const results = [];
         const streamHeaders = {
             "User-Agent": USER_AGENT,
             "Referer": playerReferer,
@@ -573,7 +580,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
             "Connection": "keep-alive",
             "Cookie": cookies
         };
-        const result = {
+        const finalResult = {
             name: "CinemaCity",
             title: movieTitle,
             url: streamUrl,
@@ -586,12 +593,11 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         };
 
         if (streamUrl.includes(".m3u8")) {
-            const detectedQuality = await checkQualityFromPlaylist(streamUrl, result.headers);
-            if (detectedQuality) result.quality = detectedQuality;
+            const detectedQuality = await checkQualityFromPlaylist(streamUrl, finalResult.headers);
+            if (detectedQuality) finalResult.quality = detectedQuality;
         }
 
-        results.push(formatStream(result, "CinemaCity"));
-        return results;
+        return [formatStream(finalResult, "CinemaCity")];
 
     } catch (e) {
         console.error("[CinemaCity] Error:", e);

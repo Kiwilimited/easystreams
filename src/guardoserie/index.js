@@ -357,17 +357,20 @@ async function guessUrlFromSlug(baseUrl, title, originalTitle) {
         }
     }
 
-    for (const url of candidates) {
+    const candidateArray = Array.from(candidates);
+    const results = await Promise.all(candidateArray.map(async (url) => {
         try {
             const html = await tryFetchPageHtml(url);
             if (html && htmlMatchesTitle(html, title, originalTitle)) {
                 return url;
             }
         } catch (e) {
-            // Ignore and continue
+            // Ignore
         }
-    }
-    return null;
+        return null;
+    }));
+
+    return results.find(Boolean) || null;
 }
 
 async function getShowInfo(tmdbId, type) {
@@ -466,44 +469,30 @@ async function getStreams(id, type, season, episode, providerContext = null) {
             const searchUrl = `${baseUrl}/wp-admin/admin-ajax.php`;
             const body = `s=${encodeURIComponent(query)}&action=searchwp_live_search&swpengine=default&swpquery=${encodeURIComponent(query)}`;
 
-            try {
-                const searchHtml = await smartFetch(searchUrl, baseUrl, {
+            // Lanciamo AJAX e Fallback in parallelo
+            const [ajaxHtml, fallbackHtml] = await Promise.all([
+                smartFetch(searchUrl, baseUrl, {
                     method: 'POST',
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                        'Origin': baseUrl,
-                        'Referer': `${baseUrl}/`
-                    },
-                    body: body
-                });
+                    body: body,
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    provider: 'guardoserie'
+                }).catch(() => ''),
+                smartFetch(`${baseUrl}/?s=${encodeURIComponent(query)}`, baseUrl, { provider: 'guardoserie' }).catch(() => '')
+            ]);
 
-                const results = extractSearchResultsFromHtml(searchHtml, baseUrl);
-                mark('search_ajax_done', { q: query, ms: Date.now() - searchStartedAt, results: results.length });
-                if (results.length > 0) return results;
-            } catch (e) {
-                console.error('[Guardoserie] AJAX search error:', e.message);
-            }
-
-            // Fallback: try the public search page (GET)
-            const searchPageUrl = `${baseUrl}/?s=${encodeURIComponent(query)}`;
-            const pageHtml = await smartFetch(searchPageUrl, baseUrl, {
-                headers: {
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7'
-                }
-            });
-            const fallbackResults = extractSearchResultsFromHtml(pageHtml, baseUrl);
-            mark('search_fallback_done', { q: query, ms: Date.now() - searchStartedAt, results: fallbackResults.length });
-            return fallbackResults;
+            const ajaxResults = ajaxHtml ? extractSearchResultsFromHtml(ajaxHtml, baseUrl) : [];
+            const fallbackResults = fallbackHtml ? extractSearchResultsFromHtml(fallbackHtml, baseUrl) : [];
+            
+            const results = [...ajaxResults, ...fallbackResults];
+            mark('search_query_done', { q: query, ms: Date.now() - searchStartedAt, results: results.length });
+            return results;
         };
 
-        let allResults = [];
         const queries = Array.from(new Set([title, originalTitle].filter(q => q && q.length > 2)));
-        for (const q of queries) {
-            const res = await searchProvider(q);
-            allResults.push(...res);
-        }
+        // Lanciamo tutte le query in parallelo
+        const searchPromises = queries.map(q => searchProvider(q));
+        const allResultsArray = await Promise.all(searchPromises);
+        let allResults = allResultsArray.flat();
         mark('search_phase_done', { queries: queries.length, results: allResults.length });
 
         // Deduplicate results by URL
@@ -544,81 +533,48 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         let bestNoYearMatch = null;
         let bestNoYearScore = 0;
         // Limit to top 10 results to avoid timeout while being thorough
-        for (const result of allResults.slice(0, 10)) {
-            // Check title match first to avoid unnecessary fetches
+        // Parallel verification of top results
+        const topResults = allResults.slice(0, 5);
+        const verificationPromises = topResults.map(async (result) => {
             const nResult = normalizeTitle(result.title);
             const matchScore = scoreTitleMatch(nResult);
-            const isExactMatch = matchScore === 3;
-            const isPartialMatch = matchScore >= 1;
+            if (matchScore < 1) return null;
 
-            if (isExactMatch || isPartialMatch) {
-                // Verify year in the page
-                try {
-                    const verifyStartedAt = Date.now();
-                    const pageHtml = await smartFetch(result.url, getGuardoserieBaseUrl(), {
-                        headers: {
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                            'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-                            'Referer': `${getGuardoserieBaseUrl()}/`
-                        }
-                    });
-                    mark('result_verify_done', { url: result.url, ms: Date.now() - verifyStartedAt });
+            try {
+                const pageHtml = await smartFetch(result.url, getGuardoserieBaseUrl(), {
+                    provider: 'guardoserie'
+                });
+                
+                let foundYear = null;
+                const pubYearMatch = pageHtml.match(/pubblicazione.*?release-year\/(\d{4})/i);
+                if (pubYearMatch) foundYear = pubYearMatch[1];
 
-                    // Target the year specifically using regex
-                    let foundYear = null;
-
-                    // 1. Try "pubblicazione" link in page
-                    const pubYearMatch = pageHtml.match(/pubblicazione.*?release-year\/(\d{4})/i);
-                    if (pubYearMatch) {
-                        foundYear = pubYearMatch[1];
-                    }
-
-                    // 2. Try meta tags (ISO date)
-                    if (!foundYear) {
-                        const metaDateMatch = pageHtml.match(/property="og:updated_time" content="(20\d{2})/i) ||
-                            pageHtml.match(/itemprop="datePublished" content="(20\d{2})/i) ||
-                            pageHtml.match(/content="(20\d{2})-\d{2}-\d{2}"/i);
-                        if (metaDateMatch) {
-                            foundYear = metaDateMatch[1];
-                        }
-                    }
-
-                    // 3. Last resort: ANY release-year link
-                    if (!foundYear) {
-                        const anyYearMatch = pageHtml.match(/release-year\/(\d{4})/i);
-                        if (anyYearMatch) {
-                            foundYear = anyYearMatch[1];
-                        }
-                    }
-
-                    if (foundYear) {
-                        const targetYear = parseInt(year);
-                        const fYear = parseInt(foundYear);
-                        // If exact title match, be very lenient with year (sites often have wrong metadata)
-                        const maxDiff = isExactMatch ? 10 : 1;
-                        if (fYear === targetYear || Math.abs(fYear - targetYear) <= maxDiff) {
-                            targetUrl = result.url;
-                            break;
-                        }
-                    } else {
-                        // If no year found at all, track best title-only match
-                        if (matchScore >= 2 && matchScore >= bestNoYearScore) {
-                            bestNoYearScore = matchScore;
-                            bestNoYearMatch = result.url;
-                            if (isExactMatch) {
-                                targetUrl = result.url;
-                                break;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // If fetch fails, but title matches strongly, we can still try it as fallback
-                    if (matchScore >= 2) {
-                        bestNoYearScore = Math.max(bestNoYearScore, matchScore);
-                        bestNoYearMatch = result.url;
-                    }
+                if (!foundYear) {
+                    const anyYearMatch = pageHtml.match(/release-year\/(\d{4})/i);
+                    if (anyYearMatch) foundYear = anyYearMatch[1];
                 }
+
+                if (foundYear) {
+                    const targetYear = parseInt(year);
+                    const fYear = parseInt(foundYear);
+                    const maxDiff = matchScore === 3 ? 10 : 1;
+                    if (fYear === targetYear || Math.abs(fYear - targetYear) <= maxDiff) {
+                        return { url: result.url, score: matchScore, exact: true };
+                    }
+                } else if (matchScore >= 2) {
+                    return { url: result.url, score: matchScore, exact: false };
+                }
+            } catch (e) {
+                if (matchScore >= 2) return { url: result.url, score: matchScore, exact: false };
             }
+            return null;
+        });
+
+        const verifiedResults = (await Promise.all(verificationPromises)).filter(Boolean);
+        verifiedResults.sort((a, b) => b.score - a.score);
+        
+        if (verifiedResults.length > 0) {
+            targetUrl = verifiedResults[0].url;
         }
 
         if (!targetUrl && bestNoYearMatch) {

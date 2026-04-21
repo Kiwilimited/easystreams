@@ -290,23 +290,28 @@ var require_cf_bypass = __commonJS({
   "cf_bypass.js"(exports2, module2) {
     var fs = require("fs");
     var axios = require("axios");
-    var activeClearancePromise = null;
-    function getClearance(url) {
-      return __async(this, null, function* () {
-        if (activeClearancePromise) {
-          console.log(`[CF] FlareSolverr bypass gi\xE0 in corso per ${url}, attendo...`);
-          return activeClearancePromise;
+    var activeBypasses = /* @__PURE__ */ new Map();
+    function getClearance(_0) {
+      return __async(this, arguments, function* (url, provider = "default", options = {}) {
+        const sessionFile = `cf-session-${provider}.json`;
+        if (activeBypasses.has(provider)) {
+          console.log(`[CF] FlareSolverr bypass gi\xE0 in corso per il provider [${provider}], attendo...`);
+          return activeBypasses.get(provider);
         }
-        activeClearancePromise = (() => __async(null, null, function* () {
+        const bypassPromise = (() => __async(null, null, function* () {
           var _a;
-          const flaresolverrUrl = process.env.FLARESOLVERR_URL || "http://127.0.0.1:8191/v1";
+          const FLARE_URL = process.env.FLARE_URL || "http://127.0.0.1:8191/v1";
           console.log(`[CF] Richiesta bypass a FlareSolverr: ${url}`);
+          const payload = {
+            cmd: options.method === "POST" ? "request.post" : "request.get",
+            url,
+            maxTimeout: 6e4
+          };
+          if (options.method === "POST" && options.body) {
+            payload.postData = options.body;
+          }
           try {
-            const response = yield axios.post(flaresolverrUrl, {
-              cmd: "request.get",
-              url,
-              maxTimeout: 6e4
-            }, {
+            const response = yield axios.post(FLARE_URL, payload, {
               timeout: 7e4,
               headers: { "Content-Type": "application/json" }
             });
@@ -318,9 +323,10 @@ var require_cf_bypass = __commonJS({
                 userAgent: solution.userAgent,
                 cookies,
                 cf_clearance: cf_clearance || null,
+                response: solution.response,
                 timestamp: Date.now()
               };
-              fs.writeFileSync("cf-session.json", JSON.stringify(data, null, 2));
+              fs.writeFileSync(sessionFile, JSON.stringify(data, null, 2));
               console.log(`[CF] FlareSolverr: Bypass completato con successo per ${url}`);
               return data;
             } else {
@@ -330,14 +336,15 @@ var require_cf_bypass = __commonJS({
           } catch (error) {
             console.error(`[CF] Errore FlareSolverr: ${error.message}`);
             if (error.code === "ECONNREFUSED") {
-              console.error(`[CF] ASSICURATI CHE FLARESOLVERR SIA ATTIVO SU ${flaresolverrUrl}`);
+              console.error(`[CF] ASSICURATI CHE FLARESOLVERR SIA ATTIVO SU ${FLARE_URL}`);
             }
             throw error;
           } finally {
-            activeClearancePromise = null;
+            activeBypasses.delete(provider);
           }
         }))();
-        return activeClearancePromise;
+        activeBypasses.set(provider, bypassPromise);
+        return bypassPromise;
       });
     }
     module2.exports = { getClearance };
@@ -351,9 +358,30 @@ var require_cf_handler = __commonJS({
     var fs = require("fs");
     var path = require("path");
     var { getClearance } = require_cf_bypass();
+    var https = require("https");
+    var http = require("http");
+    var agentOptions = {
+      keepAlive: true,
+      maxSockets: 250,
+      maxFreeSockets: 100,
+      timeout: 3e4,
+      keepAliveMsecs: 3e4
+    };
+    var httpsAgent = new https.Agent(agentOptions);
+    var httpAgent = new http.Agent(agentOptions);
+    var requestCache = /* @__PURE__ */ new Map();
+    var CACHE_TTL = 6e5;
     function smartFetch2(_0, _1) {
       return __async(this, arguments, function* (url, domain, options = {}) {
-        const sessionFile = path.join(__dirname, "../../cf-session.json");
+        const provider = options.provider || domain.replace(/https?:\/\//, "").split(".")[0];
+        const sessionFile = path.join(__dirname, `../../cf-session-${provider}.json`);
+        const cacheKey = `${options.method || "GET"}:${url}:${options.body || ""}`;
+        if (requestCache.has(cacheKey)) {
+          const cached = requestCache.get(cacheKey);
+          if (Date.now() - cached.timestamp < CACHE_TTL) {
+            return cached.data;
+          }
+        }
         const loadSession = () => {
           if (fs.existsSync(sessionFile)) {
             try {
@@ -367,29 +395,45 @@ var require_cf_handler = __commonJS({
         let session = loadSession();
         const doRequest = (sess) => __async(null, null, function* () {
           const mergedHeaders = __spreadValues({
-            "User-Agent": sess.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Cookie": sess.cookies || "",
-            "Referer": domain + "/",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-          }, options.headers || {});
-          return axios({
+            "User-Agent": sess.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+          }, options.headers);
+          if (sess.cookies) {
+            mergedHeaders.Cookie = sess.cookies;
+          }
+          const response = yield axios({
             url,
             method: options.method || "GET",
-            data: options.body || null,
+            data: options.body,
             headers: mergedHeaders,
-            timeout: options.timeout || 2e4
+            httpsAgent,
+            httpAgent,
+            timeout: options.timeout || 2e4,
+            validateStatus: false
           });
+          const data = response.data;
+          if (response.status >= 400 && response.status !== 403 && response.status !== 503) {
+            const err = new Error(`HTTP ${response.status}`);
+            err.response = { status: response.status, data };
+            throw err;
+          }
+          return { data, status: response.status };
         });
         try {
           const res = yield doRequest(session);
+          if (res.status === 403 || res.status === 503) {
+            throw { response: res };
+          }
+          requestCache.set(cacheKey, { data: res.data, timestamp: Date.now() });
           return res.data;
         } catch (err) {
           if (err.response && (err.response.status === 403 || err.response.status === 503)) {
-            console.warn(`[CF-HANDLER] Blocco rilevato. Avvio bypass per ${domain}...`);
-            const newSession = yield getClearance(domain, false);
-            console.log(`[CF-HANDLER] Bypass riuscito. Riprovo richiesta...`);
-            const retryRes = yield doRequest(newSession);
-            return retryRes.data;
+            console.warn(`[CF-HANDLER][${provider}] Blocco rilevato. Avvio bypass per ${url}...`);
+            const newSession = yield getClearance(url, provider, options);
+            const res = yield doRequest(newSession);
+            requestCache.set(cacheKey, { data: res.data, timestamp: Date.now() });
+            return res.data;
           }
           throw err;
         }
@@ -7868,7 +7912,8 @@ function guessUrlFromSlug(baseUrl, title, originalTitle) {
         candidates.add(makeUrl(slug));
       }
     }
-    for (const url of candidates) {
+    const candidateArray = Array.from(candidates);
+    const results = yield Promise.all(candidateArray.map((url) => __async(null, null, function* () {
       try {
         const html = yield tryFetchPageHtml(url);
         if (html && htmlMatchesTitle(html, title, originalTitle)) {
@@ -7876,8 +7921,9 @@ function guessUrlFromSlug(baseUrl, title, originalTitle) {
         }
       } catch (e) {
       }
-    }
-    return null;
+      return null;
+    })));
+    return results.find(Boolean) || null;
   });
 }
 function getShowInfo(tmdbId, type) {
@@ -7964,40 +8010,25 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const searchStartedAt = Date.now();
         const searchUrl = `${baseUrl}/wp-admin/admin-ajax.php`;
         const body = `s=${encodeURIComponent(query)}&action=searchwp_live_search&swpengine=default&swpquery=${encodeURIComponent(query)}`;
-        try {
-          const searchHtml = yield smartFetch(searchUrl, baseUrl, {
+        const [ajaxHtml, fallbackHtml] = yield Promise.all([
+          smartFetch(searchUrl, baseUrl, {
             method: "POST",
-            headers: {
-              "X-Requested-With": "XMLHttpRequest",
-              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-              "Origin": baseUrl,
-              "Referer": `${baseUrl}/`
-            },
-            body
-          });
-          const results = extractSearchResultsFromHtml(searchHtml, baseUrl);
-          mark("search_ajax_done", { q: query, ms: Date.now() - searchStartedAt, results: results.length });
-          if (results.length > 0) return results;
-        } catch (e) {
-          console.error("[Guardoserie] AJAX search error:", e.message);
-        }
-        const searchPageUrl = `${baseUrl}/?s=${encodeURIComponent(query)}`;
-        const pageHtml = yield smartFetch(searchPageUrl, baseUrl, {
-          headers: {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
-          }
-        });
-        const fallbackResults = extractSearchResultsFromHtml(pageHtml, baseUrl);
-        mark("search_fallback_done", { q: query, ms: Date.now() - searchStartedAt, results: fallbackResults.length });
-        return fallbackResults;
+            body,
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            provider: "guardoserie"
+          }).catch(() => ""),
+          smartFetch(`${baseUrl}/?s=${encodeURIComponent(query)}`, baseUrl, { provider: "guardoserie" }).catch(() => "")
+        ]);
+        const ajaxResults = ajaxHtml ? extractSearchResultsFromHtml(ajaxHtml, baseUrl) : [];
+        const fallbackResults = fallbackHtml ? extractSearchResultsFromHtml(fallbackHtml, baseUrl) : [];
+        const results = [...ajaxResults, ...fallbackResults];
+        mark("search_query_done", { q: query, ms: Date.now() - searchStartedAt, results: results.length });
+        return results;
       });
-      let allResults = [];
       const queries = Array.from(new Set([title, originalTitle].filter((q) => q && q.length > 2)));
-      for (const q of queries) {
-        const res = yield searchProvider(q);
-        allResults.push(...res);
-      }
+      const searchPromises = queries.map((q) => searchProvider(q));
+      const allResultsArray = yield Promise.all(searchPromises);
+      let allResults = allResultsArray.flat();
       mark("search_phase_done", { queries: queries.length, results: allResults.length });
       allResults = Array.from(new Map(allResults.map((item) => [item.url, item])).values());
       const nTitle = normalizeTitle(title);
@@ -8029,64 +8060,41 @@ function getStreams(id, type, season, episode, providerContext = null) {
       let targetUrl = null;
       let bestNoYearMatch = null;
       let bestNoYearScore = 0;
-      for (const result of allResults.slice(0, 10)) {
+      const topResults = allResults.slice(0, 5);
+      const verificationPromises = topResults.map((result) => __async(null, null, function* () {
         const nResult = normalizeTitle(result.title);
         const matchScore = scoreTitleMatch(nResult);
-        const isExactMatch = matchScore === 3;
-        const isPartialMatch = matchScore >= 1;
-        if (isExactMatch || isPartialMatch) {
-          try {
-            const verifyStartedAt = Date.now();
-            const pageHtml = yield smartFetch(result.url, getGuardoserieBaseUrl(), {
-              headers: {
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": `${getGuardoserieBaseUrl()}/`
-              }
-            });
-            mark("result_verify_done", { url: result.url, ms: Date.now() - verifyStartedAt });
-            let foundYear = null;
-            const pubYearMatch = pageHtml.match(/pubblicazione.*?release-year\/(\d{4})/i);
-            if (pubYearMatch) {
-              foundYear = pubYearMatch[1];
-            }
-            if (!foundYear) {
-              const metaDateMatch = pageHtml.match(/property="og:updated_time" content="(20\d{2})/i) || pageHtml.match(/itemprop="datePublished" content="(20\d{2})/i) || pageHtml.match(/content="(20\d{2})-\d{2}-\d{2}"/i);
-              if (metaDateMatch) {
-                foundYear = metaDateMatch[1];
-              }
-            }
-            if (!foundYear) {
-              const anyYearMatch = pageHtml.match(/release-year\/(\d{4})/i);
-              if (anyYearMatch) {
-                foundYear = anyYearMatch[1];
-              }
-            }
-            if (foundYear) {
-              const targetYear = parseInt(year);
-              const fYear = parseInt(foundYear);
-              const maxDiff = isExactMatch ? 10 : 1;
-              if (fYear === targetYear || Math.abs(fYear - targetYear) <= maxDiff) {
-                targetUrl = result.url;
-                break;
-              }
-            } else {
-              if (matchScore >= 2 && matchScore >= bestNoYearScore) {
-                bestNoYearScore = matchScore;
-                bestNoYearMatch = result.url;
-                if (isExactMatch) {
-                  targetUrl = result.url;
-                  break;
-                }
-              }
-            }
-          } catch (e) {
-            if (matchScore >= 2) {
-              bestNoYearScore = Math.max(bestNoYearScore, matchScore);
-              bestNoYearMatch = result.url;
-            }
+        if (matchScore < 1) return null;
+        try {
+          const pageHtml = yield smartFetch(result.url, getGuardoserieBaseUrl(), {
+            provider: "guardoserie"
+          });
+          let foundYear = null;
+          const pubYearMatch = pageHtml.match(/pubblicazione.*?release-year\/(\d{4})/i);
+          if (pubYearMatch) foundYear = pubYearMatch[1];
+          if (!foundYear) {
+            const anyYearMatch = pageHtml.match(/release-year\/(\d{4})/i);
+            if (anyYearMatch) foundYear = anyYearMatch[1];
           }
+          if (foundYear) {
+            const targetYear = parseInt(year);
+            const fYear = parseInt(foundYear);
+            const maxDiff = matchScore === 3 ? 10 : 1;
+            if (fYear === targetYear || Math.abs(fYear - targetYear) <= maxDiff) {
+              return { url: result.url, score: matchScore, exact: true };
+            }
+          } else if (matchScore >= 2) {
+            return { url: result.url, score: matchScore, exact: false };
+          }
+        } catch (e) {
+          if (matchScore >= 2) return { url: result.url, score: matchScore, exact: false };
         }
+        return null;
+      }));
+      const verifiedResults = (yield Promise.all(verificationPromises)).filter(Boolean);
+      verifiedResults.sort((a, b) => b.score - a.score);
+      if (verifiedResults.length > 0) {
+        targetUrl = verifiedResults[0].url;
       }
       if (!targetUrl && bestNoYearMatch) {
         console.log(`[Guardoserie] Year not found, using best title match: ${bestNoYearMatch}`);

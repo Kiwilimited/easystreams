@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const cheerio = require("cheerio");
 const { extractVixCloud } = require("../extractors");
@@ -279,9 +279,9 @@ function sanitizeAnimeTitle(rawTitle) {
   // Remove language markers often embedded in AU page titles.
   text = text
     .replace(/\s*[\[(]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*[\])]\s*/gi, " ")
-    .replace(/\s*[-–_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "")
+    .replace(/\s*[-�_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "")
     .replace(/\s{2,}/g, " ")
-    .replace(/\s*[-–_|:]\s*$/g, "")
+    .replace(/\s*[-�_|:]\s*$/g, "")
     .trim();
 
   return text || null;
@@ -348,7 +348,7 @@ function extractAnimeIdFromPath(animePath) {
 }
 
 function resolveLanguageEmoji(sourceTag) {
-  return String(sourceTag || "").toUpperCase() === "ITA" ? "🇮🇹" : "🇯🇵";
+  return String(sourceTag || "").toUpperCase() === "ITA" ? "????" : "????";
 }
 
 function extractQualityHint(value) {

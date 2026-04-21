@@ -7708,7 +7708,7 @@ var require_animeunity = __commonJS({
       let text = String(rawTitle || "").trim();
       if (!text) return null;
       text = text.replace(/\s*-\s*AnimeUnity.*$/i, "").replace(/\s+Streaming.*$/i, "").trim();
-      text = text.replace(/\s*[\[(]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*[\])]\s*/gi, " ").replace(/\s*[-â€“_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "").replace(/\s{2,}/g, " ").replace(/\s*[-â€“_|:]\s*$/g, "").trim();
+      text = text.replace(/\s*[\[(]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*[\])]\s*/gi, " ").replace(/\s*[-–_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "").replace(/\s{2,}/g, " ").replace(/\s*[-–_|:]\s*$/g, "").trim();
       return text || null;
     }
     function parseVideoPlayerJson(rawValue, fallback) {
@@ -7758,7 +7758,7 @@ var require_animeunity = __commonJS({
       return parsePositiveInt(match == null ? void 0 : match[1]);
     }
     function resolveLanguageEmoji(sourceTag) {
-      return String(sourceTag || "").toUpperCase() === "ITA" ? "\u{1F1EE}\u{1F1F9}" : "\u{1F1EF}\u{1F1F5}";
+      return String(sourceTag || "").toUpperCase() === "ITA" ? "????" : "????";
     }
     function extractQualityHint(value) {
       const text = String(value || "");

@@ -27,7 +27,8 @@ if (!global.fetch) {
 
 const https = require('https');
 const http = require('http');
-const byparr = require('./byparr_manager');
+const flareManager = require('./flare_manager');
+const { getClearance } = require('./cf_bypass');
 
 const IS_PRODUCTION = false;
 const VERBOSE_LOGS = true;
@@ -65,10 +66,13 @@ function logVerbose(...args) {
     console.log(...args);
 }
 
+// Increase event listeners limit for high traffic
+process.setMaxListeners(0);
+
 // Connection pooling configuration
 const agentOptions = {
     keepAlive: true,
-    maxSockets: 250,
+    maxSockets: 500,
     maxFreeSockets: 100,
     timeout: 30000,
     keepAliveMsecs: 30000
@@ -147,11 +151,11 @@ app.use((req, res, next) => {
 
 // Global timeout configuration
 const FETCH_TIMEOUT = 10000;
-const STREAM_RESPONSE_TIMEOUT = 10500;
-const DEFAULT_PROVIDER_TIMEOUT = Math.max(1500, STREAM_RESPONSE_TIMEOUT - 500);
-const PROVIDER_TIMEOUT = Math.min(DEFAULT_PROVIDER_TIMEOUT, STREAM_RESPONSE_TIMEOUT);
-const ANIME_PROVIDER_TIMEOUT = 12000;
-const ANIME_STREAM_RESPONSE_TIMEOUT = Math.max(STREAM_RESPONSE_TIMEOUT, ANIME_PROVIDER_TIMEOUT + 1500);
+const STREAM_RESPONSE_TIMEOUT = 45000;
+const DEFAULT_PROVIDER_TIMEOUT = 40000;
+const PROVIDER_TIMEOUT = 40000;
+const ANIME_PROVIDER_TIMEOUT = 40000;
+const ANIME_STREAM_RESPONSE_TIMEOUT = 45000;
 const ENABLE_SERIES_MAPPING_LOOKUP = false;
 const ENABLE_ANIME_FALLBACK_ON_SERIES = false;
 const ENABLE_ANIME_FALLBACK_ON_MOVIES = false;
@@ -1267,7 +1271,11 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
         }
     }
 
-    return [...new Set(plan)].filter((name) => providers[name] && typeof providers[name].getStreams === 'function');
+    const finalPlan = [...new Set(plan)].filter((name) => {
+        return providers[name] && typeof providers[name].getStreams === 'function';
+    });
+
+    return finalPlan;
 }
 
 const builder = new addonBuilder({
@@ -1312,6 +1320,7 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
     const season = parsedRequest.season;
     const episode = parsedRequest.episode;
     const requestContext = await resolveProviderRequestContext(type, providerId, season, episode, mappingLanguage, parsedRequest.seasonProvided);
+
     const bypassSeasonZeroCache = shouldBypassStreamCacheForSeasonZero(type, requestContext);
     const cacheEnabledForRequest = ADDON_CACHE_ENABLED && !bypassSeasonZeroCache;
 
@@ -1427,7 +1436,7 @@ builder.defineStreamHandler(async ({ type, id, config = {} }) => {
 
                 logVerbose(`[${name}] Searching...`);
 
-                const providerTimeoutMs = Math.min(PROVIDER_TIMEOUT, requestStreamTimeout);
+                const providerTimeoutMs = PROVIDER_TIMEOUT;
 
                 let timeoutId;
                 const timeoutPromise = new Promise((resolve) => {
@@ -1993,16 +2002,6 @@ app.get('/', (req, res) => {
                 </div>
 
                 <div class="config-panel">
-                    <div class="config-panel-title">General</div>
-                    <label class="config-toggle" for="easyCatalogsLangIt">
-                        <input type="checkbox" id="easyCatalogsLangIt" name="easyCatalogsLangIt">
-                        <div>
-                            <strong>EasyCatalogs Mode</strong>
-                        </div>
-                    </label>
-                </div>
-
-                <div class="config-panel">
                     <div class="config-panel-title">EasyProxy</div>
                     <label class="config-toggle" for="easyProxyUrl">
                         <div style="width: 100%;">
@@ -2130,16 +2129,22 @@ app.get('/', (req, res) => {
 app.use('/', addonRouter);
 
 // API per Nuvio / Client-side
-app.get('/resolve/guardoserie', async (req, res) => {
+app.get('/resolve/:provider', async (req, res) => {
+    const { provider: providerName } = req.params;
     const { id, type, s, ep } = req.query;
+
     if (!id || !type) {
         return res.status(400).json({ error: 'Missing parameters (id, type)' });
     }
 
-    console.log(`[API] Richiesta remota Guardoserie: ${type} ${id} ${s}x${ep}`);
+    const provider = providers[providerName];
+    if (!provider) {
+        return res.status(404).json({ error: `Provider '${providerName}' not found` });
+    }
+
+    console.log(`[API] Richiesta remota ${providerName}: ${type} ${id} ${s}x${ep}`);
 
     try {
-        const provider = providers.guardoserie;
         const season = parseInt(s) || 1;
         const episode = parseInt(ep) || 1;
 
@@ -2150,44 +2155,52 @@ app.get('/resolve/guardoserie', async (req, res) => {
         const streams = await provider.getStreams(id, type, season, episode, providerContext);
         res.json({ streams });
     } catch (e) {
-        console.error('[API] Errore risoluzione remota:', e.message);
+        console.error(`[API] Errore risoluzione remota ${providerName}:`, e.message);
         res.status(500).json({ error: e.message });
     }
 });
 
 const PORT = process.env.PORT || 7000;
 
-// Add warmup logic for providers that need Cloudflare bypass
-async function warmup() {
+async function warmupProviders() {
     console.log('[Warmup] Avvio riscaldamento provider...');
-    try {
-        const { getClearance } = require('./cf_bypass');
-        // Riscaldiamo Guardoserie
-        await getClearance('https://guardoserie.team', process.env.IN_DOCKER === 'true');
-        console.log('[Warmup] Guardoserie pronto!');
-    } catch (e) {
-        console.error('[Warmup] Errore riscaldamento:', e.message);
+    const targets = [
+        { name: 'Guardoserie', url: 'https://guardoserie.team/wp-admin/admin-ajax.php' },
+        { name: 'Cinemacity', url: 'https://cinemacity.cc/index.php?do=search' }
+    ];
+
+    for (const target of targets) {
+        try {
+            console.log(`[Warmup] Riscaldamento ${target.name}...`);
+            await getClearance(target.url, target.name.toLowerCase());
+            console.log(`[Warmup] ${target.name} pronto!`);
+        } catch (e) {
+            console.error(`[Warmup] Errore riscaldamento ${target.name}:`, e.message);
+        }
     }
 }
 
-const server = app.listen(PORT, async () => {
-    logInfo(`Stremio Addon running at http://localhost:${PORT}`);
-    
-    // Avvia Byparr se necessario
+let server;
+(async () => {
+    // Avvia FlareSolverr prima di accettare connessioni
     try {
-        await byparr.start();
+        await flareManager.start();
+        console.log('[FlareSolverr] Pronto.');
+        // Avvia riscaldamento in background
+        warmupProviders().catch(e => console.error('[Warmup] Errore critico:', e));
     } catch (e) {
-        console.error('[Addon] Errore avvio Byparr:', e.message);
+        console.error('[Addon] Errore avvio FlareSolverr:', e.message);
     }
 
-    // Avvia warmup in background
-    warmup();
-});
+    server = app.listen(PORT, () => {
+        logInfo(`Stremio Addon running at http://localhost:${PORT}`);
+    });
+})();
 
 // Graceful Shutdown
 process.on('SIGTERM', () => {
     logInfo('[Shutdown] SIGTERM received. Closing server...');
-    byparr.stop();
+    flareManager.stop();
     server.close(() => {
         logInfo('[Shutdown] Server closed.');
         httpsAgent.destroy();
@@ -2199,7 +2212,7 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
     logInfo('[Shutdown] SIGINT received. Closing server...');
-    byparr.stop();
+    flareManager.stop();
     server.close(() => {
         logInfo('[Shutdown] Server closed.');
         httpsAgent.destroy();
@@ -2208,3 +2221,13 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught Exception:', err.message || err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled Rejection:', reason.message || reason);
+});
+
+

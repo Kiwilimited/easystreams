@@ -9,5 +9,5 @@ services:
       - NODE_ENV=production
       - VERBOSE_LOGS=0
       - QUIET_PROVIDER_LOGS=1
-      # Byparr viene gestito internamente dall'addon
+      # FlareSolverr viene gestito internamente dall'addon
     restart: unless-stopped

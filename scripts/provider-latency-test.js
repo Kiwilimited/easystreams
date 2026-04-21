@@ -1,4 +1,4 @@
-﻿const { spawn } = require('child_process');
+const { spawn } = require('child_process');
 
 const DEFAULT_CASES = [
   { type: 'movie', id: 'tt0816692' },

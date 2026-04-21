@@ -1,57 +1,50 @@
 FROM node:18-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# 1. Install system dependencies (Chromium and Python for FlareSolverr source)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     git \
     python3 \
     python3-pip \
-    curl \
-    # Playwright/Browsers dependencies
-    libgbm-dev \
+    python3-venv \
+    chromium \
+    chromium-driver \
+    xvfb \
+    xauth \
     libnss3 \
-    libasound2 \
-    libxshmfence1 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrender1 \
-    libxtst6 \
-    libpangocairo-1.0-0 \
-    libpango-1.0-0 \
     libatk1.0-0 \
-    libc6 \
-    libcairo2 \
+    libatk-bridge2.0-0 \
     libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
-    libgcc1 \
-    libgconf-2-4 \
-    libgdk-pixbuf2.0-0 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libstdc++6 \
-    libx11-6 \
-    libxcb1 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
     libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libcairo2 \
     && rm -rf /var/lib/apt/lists/*
-
-# Install uv from official image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-# Enable productions optimizations
+# 2. Setup FlareSolverr from source and PATCH IT to use system chromedriver (ARM64 fix)
+RUN git clone https://github.com/FlareSolverr/FlareSolverr.git /app/flaresolverr-src && \
+    cd /app/flaresolverr-src && \
+    # Patch to force system chromedriver path
+    sed -i 's/driver_executable_path=driver_exe_path/driver_executable_path="\/usr\/bin\/chromedriver"/' src/utils.py && \
+    pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+
+# 3. Environment Settings
 ENV NODE_ENV=production
 ENV IN_DOCKER=true
+ENV DISPLAY=:99
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
-# Copy package files and install dependencies
+# 4. Copy Node.js files and install dependencies
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
@@ -60,5 +53,5 @@ COPY . .
 
 EXPOSE 7000
 
-# Start the addon directly
-CMD ["node", "stremio_addon.js"]
+# Start Xvfb and then the addon
+CMD Xvfb :99 -screen 0 1024x768x16 & node stremio_addon.js
