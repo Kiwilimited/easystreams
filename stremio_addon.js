@@ -37,7 +37,6 @@ const QUIET_PROVIDER_LOGS = true;
 const PROVIDER_LOG_PREFIXES = [
     '[GuardaHD]',
     '[Guardoserie]',
-    '[Guardaserie]',
     '[AnimeUnity]',
     '[AnimeWorld]',
     '[AnimeSaturn]',
@@ -1182,7 +1181,6 @@ async function resolveCanonicalStreamCacheKey(type, providerId, season, episode,
 // Import providers
 const providers = {
     guardahd: require('./src/guardahd/index.js'),
-    guardaserie: require('./src/guardaserie/index.js'),
     guardoserie: require('./src/guardoserie/index.js'),
     animeunity: require('./src/animeunity/index.js'),
     animeworld: require('./src/animeworld/index.js'),
@@ -1258,16 +1256,16 @@ function getProviderExecutionOrder(type, providerId, requestContext, animeRoutin
             plan = ['streamingcommunity', 'guardahd', 'guardoserie', 'cinemacity'];
         }
     } else if (normalizedType === 'anime') {
-        plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
+        plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
     } else {
         if (isImdbRequest) {
             plan = likelyAnime
-                ? ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie']
-                : ['streamingcommunity', 'guardaserie', 'guardoserie', 'cinemacity'];
+                ? ['animeunity', 'animeworld', 'animesaturn', 'guardoserie']
+                : ['streamingcommunity', 'guardoserie', 'cinemacity'];
         } else if (likelyAnime || ENABLE_ANIME_FALLBACK_ON_SERIES) {
-            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardaserie', 'guardoserie'];
+            plan = ['animeunity', 'animeworld', 'animesaturn', 'guardoserie'];
         } else {
-            plan = ['streamingcommunity', 'guardaserie', 'guardoserie', 'cinemacity'];
+            plan = ['streamingcommunity', 'guardoserie', 'cinemacity'];
         }
     }
 
@@ -2165,7 +2163,7 @@ const PORT = process.env.PORT || 7000;
 async function warmupProviders() {
     console.log('[Warmup] Avvio riscaldamento provider...');
     const targets = [
-        { name: 'Guardoserie', url: 'https://guardoserie.team/wp-admin/admin-ajax.php' },
+        { name: 'Guardoserie', url: 'https://guardoserie.work/wp-admin/admin-ajax.php' },
         { name: 'Cinemacity', url: 'https://cinemacity.cc/index.php?do=search' }
     ];
 

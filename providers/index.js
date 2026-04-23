@@ -7721,11 +7721,12 @@ var require_guardahd = __commonJS({
 var require_cf_bypass = __commonJS({
   "cf_bypass.js"(exports2, module2) {
     var fs = require("fs");
+    var path = require("path");
     var axios = require("axios");
     var activeBypasses = /* @__PURE__ */ new Map();
     function getClearance(_0) {
       return __async(this, arguments, function* (url, provider = "default", options = {}) {
-        const sessionFile = `cf-session-${provider}.json`;
+        const sessionFile = path.join(process.cwd(), `cf-session-${provider}.json`);
         if (activeBypasses.has(provider)) {
           console.log(`[CF] FlareSolverr bypass gi\xE0 in corso per il provider [${provider}], attendo...`);
           return activeBypasses.get(provider);
@@ -7806,7 +7807,7 @@ var require_cf_handler = __commonJS({
     function smartFetch(_0, _1) {
       return __async(this, arguments, function* (url, domain, options = {}) {
         const provider = options.provider || domain.replace(/https?:\/\//, "").split(".")[0];
-        const sessionFile = path.join(__dirname, `../../cf-session-${provider}.json`);
+        const sessionFile = path.join(process.cwd(), `cf-session-${provider}.json`);
         const cacheKey = `${options.method || "GET"}:${url}:${options.body || ""}`;
         if (requestCache.has(cacheKey)) {
           const cached = requestCache.get(cacheKey);
@@ -7817,7 +7818,11 @@ var require_cf_handler = __commonJS({
         const loadSession = () => {
           if (fs.existsSync(sessionFile)) {
             try {
-              return JSON.parse(fs.readFileSync(sessionFile, "utf8"));
+              const data = JSON.parse(fs.readFileSync(sessionFile, "utf8"));
+              if (data && data.userAgent) {
+                console.log(`[CF-HANDLER][${provider}] Sessione caricata da file.`);
+                return data;
+              }
             } catch (e) {
               return {};
             }
@@ -7827,12 +7832,17 @@ var require_cf_handler = __commonJS({
         let session = loadSession();
         const doRequest = (sess) => __async(null, null, function* () {
           const mergedHeaders = __spreadValues({
-            "User-Agent": sess.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
           }, options.headers);
+          if (sess.userAgent) {
+            mergedHeaders["User-Agent"] = sess.userAgent;
+          } else if (!mergedHeaders["User-Agent"]) {
+            mergedHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+          }
           if (sess.cookies) {
-            mergedHeaders.Cookie = sess.cookies;
+            const existingCookies = mergedHeaders.Cookie || mergedHeaders.cookie || "";
+            mergedHeaders.Cookie = existingCookies ? existingCookies.endsWith(";") ? `${existingCookies} ${sess.cookies}` : `${existingCookies}; ${sess.cookies}` : sess.cookies;
           }
           const response = yield axios({
             url,
@@ -7875,240 +7885,6 @@ var require_cf_handler = __commonJS({
   }
 });
 
-// src/guardaserie/index.js
-var require_guardaserie = __commonJS({
-  "src/guardaserie/index.js"(exports2, module2) {
-    var __async2 = (__this, __arguments, generator) => {
-      return new Promise((resolve, reject) => {
-        var fulfilled = (value) => {
-          try {
-            step(generator.next(value));
-          } catch (e) {
-            reject(e);
-          }
-        };
-        var rejected = (value) => {
-          try {
-            step(generator.throw(value));
-          } catch (e) {
-            reject(e);
-          }
-        };
-        var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-        step((generator = generator.apply(__this, __arguments)).next());
-      });
-    };
-    function getGuardaserieBaseUrl() {
-      return "https://guardaserietv.hair";
-    }
-    var TMDB_API_KEY2 = "68e094699525b18a70bab2f86b1fa706";
-    function getMappingApiUrl() {
-      return "https://animemapping.realbestia.com";
-    }
-    var { extractMixDrop, extractDropLoad, extractSuperVideo, extractUqload, extractUpstream } = require_extractors();
-    require_fetch_helper();
-    var { checkQualityFromPlaylist } = require_quality_helper();
-    var { formatStream } = require_formatter();
-    var { smartFetch } = require_cf_handler();
-    var STEP_BENCH_ENABLED = String(process.env.PROVIDER_STEP_BENCH || "").trim().toLowerCase() === "1";
-    function getQualityFromName(qualityStr) {
-      if (!qualityStr) return "Unknown";
-      const quality = qualityStr.toUpperCase();
-      if (quality === "ORG" || quality === "ORIGINAL") return "Original";
-      if (quality === "4K" || quality === "2160P") return "4K";
-      if (quality === "1440P" || quality === "2K") return "1440p";
-      if (quality === "1080P" || quality === "FHD") return "1080p";
-      if (quality === "720P" || quality === "HD") return "720p";
-      if (quality === "480P" || quality === "SD") return "480p";
-      if (quality === "360P") return "360p";
-      if (quality === "240P") return "240p";
-      const match = qualityStr.match(/(\d{3,4})[pP]?/);
-      if (match) {
-        const resolution = parseInt(match[1]);
-        if (resolution >= 2160) return "4K";
-        if (resolution >= 1440) return "1440p";
-        if (resolution >= 1080) return "1080p";
-        if (resolution >= 720) return "720p";
-        if (resolution >= 480) return "480p";
-        if (resolution >= 360) return "360p";
-        return "240p";
-      }
-      return "Unknown";
-    }
-    function getImdbId(tmdbId, type) {
-      return __async2(this, null, function* () {
-        try {
-          const endpoint = type === "movie" ? "movie" : "tv";
-          const url = `https://api.themoviedb.org/3/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY2}`;
-          const response = yield fetch(url);
-          if (!response.ok) return null;
-          const data = yield response.json();
-          if (data.imdb_id) return data.imdb_id;
-          const externalUrl = `https://api.themoviedb.org/3/${endpoint}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY2}`;
-          const extResponse = yield fetch(externalUrl);
-          if (extResponse.ok) {
-            const extData = yield extResponse.json();
-            if (extData.imdb_id) return extData.imdb_id;
-          }
-          return null;
-        } catch (e) {
-          console.error("[Guardaserie] Conversion error:", e);
-          return null;
-        }
-      });
-    }
-    function getIdsFromKitsu(kitsuId, season, episode, providerContext = null) {
-      return __async2(this, null, function* () {
-        try {
-          if (!kitsuId) return null;
-          const params = new URLSearchParams();
-          const parsedEpisode = parseInt(String(episode || ""), 10);
-          const parsedSeason = parseInt(String(season || ""), 10);
-          params.set("ep", Number.isInteger(parsedEpisode) && parsedEpisode > 0 ? String(parsedEpisode) : "1");
-          if (Number.isInteger(parsedSeason) && parsedSeason >= 0) params.set("s", String(parsedSeason));
-          params.set("lang", "it");
-          const url = `${getMappingApiUrl()}/kitsu/${encodeURIComponent(String(kitsuId).trim())}?${params.toString()}`;
-          const response = yield fetch(url);
-          if (!response.ok) return null;
-          const payload = yield response.json();
-          const ids = payload && payload.mappings && payload.mappings.ids ? payload.mappings.ids : {};
-          const tmdbEpisode = payload && payload.mappings && (payload.mappings.tmdb_episode || payload.mappings.tmdbEpisode) || payload && (payload.tmdb_episode || payload.tmdbEpisode) || null;
-          const tmdbId = ids && /^\d+$/.test(String(ids.tmdb || "").trim()) ? String(ids.tmdb).trim() : null;
-          const imdbId = ids && /^tt\d+$/i.test(String(ids.imdb || "").trim()) ? String(ids.imdb).trim() : null;
-          const mappedSeason = parseInt(String(tmdbEpisode && (tmdbEpisode.season || tmdbEpisode.seasonNumber || tmdbEpisode.season_number) || ""), 10);
-          const mappedEpisode = parseInt(String(tmdbEpisode && (tmdbEpisode.episode || tmdbEpisode.episodeNumber || tmdbEpisode.episode_number) || ""), 10);
-          const rawEpisodeNumber = parseInt(String(tmdbEpisode && (tmdbEpisode.rawEpisodeNumber || tmdbEpisode.raw_episode_number || tmdbEpisode.rawEpisode) || ""), 10);
-          return {
-            tmdbId,
-            imdbId,
-            mappedSeason: Number.isInteger(mappedSeason) && mappedSeason > 0 ? mappedSeason : null,
-            mappedEpisode: Number.isInteger(mappedEpisode) && mappedEpisode > 0 ? mappedEpisode : null,
-            rawEpisodeNumber: Number.isInteger(rawEpisodeNumber) && rawEpisodeNumber > 0 ? rawEpisodeNumber : null
-          };
-        } catch (e) {
-          console.error("[Guardaserie] Kitsu mapping error:", e);
-          return null;
-        }
-      });
-    }
-    function getStreams2(id, type, season, episode, providerContext = null) {
-      if (String(type).toLowerCase() === "movie") return [];
-      return __async2(this, null, function* () {
-        const benchStart = Date.now();
-        const bench = [];
-        const mark = (step, meta = {}) => {
-          if (!STEP_BENCH_ENABLED) return;
-          bench.push(__spreadValues({ step, t: Date.now() - benchStart }, meta));
-        };
-        try {
-          let tmdbId = id;
-          let imdbId = null;
-          let effectiveSeason = parseInt(String(season || ""), 10) || 1;
-          let effectiveEpisode = parseInt(String(episode || ""), 10) || 1;
-          const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
-          const contextImdbId = providerContext && /^tt\d+$/i.test(String(providerContext.imdbId || "")) ? String(providerContext.imdbId) : null;
-          const contextKitsuId = providerContext && /^\d+$/.test(String(providerContext.kitsuId || "")) ? String(providerContext.kitsuId) : null;
-          if (id.toString().startsWith("kitsu:") || contextKitsuId) {
-            const kitsuId = contextKitsuId || id.toString().split(":")[1];
-            const mapped = yield getIdsFromKitsu(kitsuId, season, episode, providerContext);
-            mark("kitsu_mapping_done", { ok: Boolean(mapped && mapped.tmdbId) });
-            if (mapped) {
-              if (mapped.tmdbId) tmdbId = mapped.tmdbId;
-              if (mapped.imdbId) imdbId = mapped.imdbId;
-              if (mapped.mappedSeason && mapped.mappedEpisode) {
-                effectiveSeason = mapped.mappedSeason;
-                effectiveEpisode = mapped.mappedEpisode;
-              } else if (mapped.rawEpisodeNumber) {
-                effectiveEpisode = mapped.rawEpisodeNumber;
-              }
-            }
-          } else if (id.toString().startsWith("tt")) {
-            imdbId = id.toString();
-            tmdbId = contextTmdbId || tmdbId;
-            mark("imdb_to_tmdb_done", { ok: true });
-          } else if (id.toString().startsWith("tmdb:")) {
-            tmdbId = id.toString().replace("tmdb:", "");
-          }
-          if (!imdbId && tmdbId) imdbId = contextImdbId || (yield getImdbId(tmdbId, type));
-          mark("imdb_resolve_done", { ok: Boolean(imdbId) });
-          if (!imdbId) return [];
-          let showUrl = null, showHtml = null;
-          let matchedTitle = imdbId;
-          if (imdbId) {
-            const searchUrl = `${getGuardaserieBaseUrl()}/index.php?do=search&subaction=search&story=${imdbId}`;
-            const searchHtml = yield smartFetch(searchUrl, getGuardaserieBaseUrl(), {
-              headers: { "Referer": getGuardaserieBaseUrl() }
-            });
-            if (searchHtml) {
-              const match = /<div class="mlnh-2">\s*<h2>\s*<a href="([^"]+)" title="([^"]+)">/i.exec(searchHtml);
-              if (match && !match[2].toUpperCase().includes("[SUB ITA]")) {
-                showUrl = match[1].startsWith("/") ? `${getGuardaserieBaseUrl()}${match[1]}` : match[1];
-                matchedTitle = match[2] || imdbId;
-                const pageHtml = yield smartFetch(showUrl, getGuardaserieBaseUrl(), {
-                  headers: { "Referer": getGuardaserieBaseUrl() }
-                });
-                if (pageHtml) showHtml = pageHtml;
-              }
-            }
-            mark("search_by_imdb_done", { ok: Boolean(showUrl) });
-          }
-          if (!showUrl || !showHtml) return [];
-          const episodeStr = `${effectiveSeason}x${effectiveEpisode}`;
-          const episodeMatch = new RegExp(`data-num="${episodeStr}"`, "i").exec(showHtml) || new RegExp(`data-num="${effectiveSeason}x${effectiveEpisode.toString().padStart(2, "0")}"`, "i").exec(showHtml);
-          if (!episodeMatch) return [];
-          mark("episode_match_done", { ok: Boolean(episodeMatch) });
-          const searchFromIndex = episodeMatch.index;
-          const mirrorsStartIndex = showHtml.indexOf('<div class="mirrors">', searchFromIndex);
-          if (mirrorsStartIndex === -1) return [];
-          const mirrorsEndIndex = showHtml.indexOf("</div>", mirrorsStartIndex);
-          const mirrorsHtml = showHtml.substring(mirrorsStartIndex, mirrorsEndIndex);
-          const linksSet = /* @__PURE__ */ new Set();
-          const linkRegex = /data-link="([^"]+)"/g;
-          let linkMatch;
-          while ((linkMatch = linkRegex.exec(mirrorsHtml)) !== null) linksSet.add(linkMatch[1]);
-          const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/gi;
-          let ifm;
-          while ((ifm = iframeRegex.exec(showHtml.substring(mirrorsStartIndex, Math.min(showHtml.length, mirrorsEndIndex + 2e3)))) !== null) linksSet.add(ifm[1]);
-          const links = Array.from(linksSet);
-          mark("links_extracted", { links: links.length });
-          const displayName = `${matchedTitle} ${effectiveSeason}x${effectiveEpisode}`;
-          const streamPromises = links.map((link) => __async2(null, null, function* () {
-            try {
-              if (link.includes("dropload") || link.includes("dr0pstream")) {
-                console.log(`[Guardaserie] DropLoad temporarily disabled: ${link}`);
-                return null;
-              } else if (link.includes("supervideo")) {
-                console.log(`[Guardaserie] SuperVideo temporarily disabled: ${link}`);
-                return null;
-              } else if (link.includes("mixdrop")) {
-                const ext = yield extractMixDrop(link);
-                if (ext && ext.url) return { url: ext.url, easyProxySourceUrl: link, headers: ext.headers, name: "Guardaserie - MixDrop", title: displayName, quality: getQualityFromName("HD"), type: "direct" };
-              }
-            } catch (e) {
-              console.error(`[Guardaserie] Extraction error for ${link}:`, e);
-            }
-            return null;
-          }));
-          const results = yield Promise.all(streamPromises);
-          const finalStreams = results.filter((r) => r !== null).map((s) => formatStream(s, "Guardaserie")).filter((s) => s !== null);
-          mark("extractors_done", { streams: finalStreams.length });
-          if (STEP_BENCH_ENABLED) {
-            console.log(`[GuardaserieBench] ${JSON.stringify({ id: String(id), type: String(type), totalMs: Date.now() - benchStart, steps: bench })}`);
-          }
-          return finalStreams;
-        } catch (e) {
-          if (STEP_BENCH_ENABLED) {
-            console.log(`[GuardaserieBench] ${JSON.stringify({ id: String(id), type: String(type), totalMs: Date.now() - benchStart, failed: true, steps: bench, error: e && e.message ? e.message : String(e) })}`);
-          }
-          console.error("[Guardaserie] Error:", e);
-          return [];
-        }
-      });
-    }
-    module2.exports = { getStreams: getStreams2 };
-  }
-});
-
 // src/guardoserie/index.js
 var require_guardoserie = __commonJS({
   "src/guardoserie/index.js"(exports2, module2) {
@@ -8136,7 +7912,7 @@ var require_guardoserie = __commonJS({
     var { extractLoadm, extractUqload, extractDropLoad, extractMixDrop, extractSuperVideo } = require_extractors();
     var STEP_BENCH_ENABLED = String(process.env.PROVIDER_STEP_BENCH || "").trim().toLowerCase() === "1";
     function getGuardoserieBaseUrl() {
-      return "https://guardoserie.team";
+      return "https://guardoserie.work";
     }
     var TMDB_API_KEY2 = "68e094699525b18a70bab2f86b1fa706";
     function getMappingApiUrl() {
@@ -8743,7 +8519,6 @@ var require_streamingcommunity = __commonJS({
       }
     }
     var guardahd2 = safeRequire("../guardahd/index");
-    var guardaserie2 = safeRequire("../guardaserie/index");
     var TMDB_API_KEY2 = "68e094699525b18a70bab2f86b1fa706";
     var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
     function getCommonHeaders() {
@@ -8882,14 +8657,6 @@ var require_streamingcommunity = __commonJS({
           checks.push(
             guardahd2.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
               console.warn("[StreamingCommunity] GuardaHD fallback check failed:", e);
-              return false;
-            })
-          );
-        }
-        if (normalizedType === "tv" && guardaserie2 && typeof guardaserie2.getStreams === "function") {
-          checks.push(
-            guardaserie2.getStreams(id, normalizedType, season, episode, providerContext).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
-              console.warn("[StreamingCommunity] Guardaserie fallback check failed:", e);
               return false;
             })
           );
@@ -9265,7 +9032,7 @@ var require_animeunity = __commonJS({
       let text = String(rawTitle || "").trim();
       if (!text) return null;
       text = text.replace(/\s*-\s*AnimeUnity.*$/i, "").replace(/\s+Streaming.*$/i, "").trim();
-      text = text.replace(/\s*[\[(]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*[\])]\s*/gi, " ").replace(/\s*[-–_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "").replace(/\s{2,}/g, " ").replace(/\s*[-–_|:]\s*$/g, "").trim();
+      text = text.replace(/\s*[\[(]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*[\])]\s*/gi, " ").replace(/\s*[-\u2013_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "").replace(/\s{2,}/g, " ").replace(/\s*[-\u2013_|:]\s*$/g, "").trim();
       return text || null;
     }
     function parseVideoPlayerJson(rawValue, fallback) {
@@ -9315,7 +9082,7 @@ var require_animeunity = __commonJS({
       return parsePositiveInt(match == null ? void 0 : match[1]);
     }
     function resolveLanguageEmoji(sourceTag) {
-      return String(sourceTag || "").toUpperCase() === "ITA" ? "????" : "????";
+      return String(sourceTag || "").toUpperCase() === "ITA" ? "\u{1F1EE}\u{1F1F9}" : "\u{1F1EF}\u{1F1F5}";
     }
     function extractQualityHint(value) {
       const text = String(value || "");
@@ -11937,24 +11704,7 @@ var require_cinemacity = __commonJS({
     var { formatStream } = require_formatter();
     var { checkQualityFromPlaylist } = require_quality_helper();
     var { fetchWithTimeout } = require_fetch_helper();
-    var IS_SERVER = typeof process !== "undefined" && process.versions && process.versions.node;
-    if (!IS_SERVER) {
-      module2.exports = {
-        getStreams: (id, type, season, episode) => __async(null, null, function* () {
-          try {
-            const url = `https://easystreams.realbestia.com/resolve/cinemacity?id=${id}&type=${type}&s=${season || 1}&ep=${episode || 1}`;
-            const response = yield fetch(url);
-            const data = yield response.json();
-            return data.streams || [];
-          } catch (e) {
-            console.error("[CinemaCity-Client] API Error:", e.message);
-            return [];
-          }
-        })
-      };
-      return;
-    }
-    var { smartFetch } = require_cf_handler();
+    var IS_SERVER = typeof process !== "undefined" && !!(process.versions && process.versions.node);
     var BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
     function base64Decode(str) {
       try {
@@ -11991,7 +11741,7 @@ var require_cinemacity = __commonJS({
       }
     }
     var BASE_URL = base64Decode("aHR0cHM6Ly9jaW5lbWFjaXR5LmNj");
-    var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    var USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
     var FETCH_TIMEOUT = 1e4;
     var TMDB_API_KEY2 = "68e094699525b18a70bab2f86b1fa706";
     function getMappingApiUrl() {
@@ -12010,6 +11760,143 @@ var require_cinemacity = __commonJS({
     function getSessionCookies() {
       const cookieB64 = "ZGxlX3VzZXJfaWQ9MzI3Mjk7IGRsZV9wYXNzd29yZD04OTQxNzFjNmE4ZGFiMThlZTU5NGQ1YzY1MjAwOWEzNTs=";
       return base64Decode(cookieB64);
+    }
+    function getServerSmartFetch() {
+      if (!IS_SERVER) return null;
+      try {
+        return require_cf_handler().smartFetch;
+      } catch (e) {
+        return null;
+      }
+    }
+    function fetchHtml(_0) {
+      return __async(this, arguments, function* (url, headers = {}, options = {}) {
+        const useBypass = options && options.useBypass === true;
+        const smartFetch = useBypass ? getServerSmartFetch() : null;
+        if (typeof smartFetch === "function") {
+          return yield smartFetch(url, BASE_URL, {
+            timeout: FETCH_TIMEOUT,
+            headers: __spreadValues({
+              "User-Agent": USER_AGENT,
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+              "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+            }, headers),
+            provider: "cinemacity"
+          });
+        }
+        const response = yield fetchWithTimeout(url, {
+          timeout: FETCH_TIMEOUT,
+          headers: __spreadValues({
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+          }, headers)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return yield response.text();
+      });
+    }
+    function decodeHtmlEntities(str) {
+      return String(str || "").replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec))).replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&ndash;|&mdash;/g, "-").replace(/\u2013|\u2014/g, "-");
+    }
+    function getHttpStatusFromError(error) {
+      const match = String(error && error.message ? error.message : error).match(/HTTP\s+(\d+)/i);
+      return match ? Number.parseInt(match[1], 10) : null;
+    }
+    function normalizeTitle(value) {
+      return decodeHtmlEntities(String(value || "")).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, "").trim();
+    }
+    function extractCandidateLinksFromListing(html, sectionType) {
+      const pathPrefix = sectionType === "movie" ? "movies" : "tv-series";
+      const regex = new RegExp(`<a[^>]+href=["']((?:https?:\\/\\/cinemacity\\.cc)?\\/${pathPrefix}\\/[^"']+\\.html)["'][^>]*>([\\s\\S]*?)<\\/a>`, "gi");
+      const results = [];
+      let match;
+      while ((match = regex.exec(html)) !== null) {
+        const href = String(match[1] || "").startsWith("/") ? `${BASE_URL}${match[1]}` : String(match[1] || "");
+        const title = decodeHtmlEntities(String(match[2] || "").replace(/<[^>]+>/g, " ")).trim();
+        if (!href || !title) continue;
+        results.push({ url: href, title });
+      }
+      return Array.from(new Map(results.map((item) => [item.url, item])).values());
+    }
+    function scoreTitleMatch(candidateTitle, expectedTitles) {
+      const normalizedCandidate = normalizeTitle(candidateTitle);
+      if (!normalizedCandidate) return 0;
+      let best = 0;
+      for (const title of expectedTitles) {
+        const normalizedExpected = normalizeTitle(title);
+        if (!normalizedExpected) continue;
+        if (normalizedCandidate === normalizedExpected) return 100;
+        if (normalizedCandidate.includes(normalizedExpected) || normalizedExpected.includes(normalizedCandidate)) {
+          best = Math.max(best, 80);
+        } else {
+          const words = normalizedExpected.length > 5 && normalizedCandidate.length > 5;
+          if (words && (normalizedCandidate.startsWith(normalizedExpected) || normalizedExpected.startsWith(normalizedCandidate))) {
+            best = Math.max(best, 60);
+          }
+        }
+      }
+      return best;
+    }
+    function extractImdbIdFromHtml(html) {
+      const matches = String(html || "").match(/\btt\d{5,}\b/gi) || [];
+      for (const match of matches) {
+        if (/^tt\d{5,}$/i.test(match)) {
+          return match.toLowerCase();
+        }
+      }
+      return null;
+    }
+    function verifyCandidateImdb(candidateUrl, expectedImdbId) {
+      return __async(this, null, function* () {
+        const normalizedExpected = String(expectedImdbId || "").trim().toLowerCase();
+        if (!/^tt\d{5,}$/.test(normalizedExpected)) {
+          return null;
+        }
+        try {
+          const html = yield fetchHtml(candidateUrl, {
+            "Referer": `${BASE_URL}/`,
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-User": "?1"
+          }, {
+            useBypass: false
+          });
+          return extractImdbIdFromHtml(html);
+        } catch (_) {
+          return null;
+        }
+      });
+    }
+    function getTmdbMetadata(id, providerType) {
+      return __async(this, null, function* () {
+        try {
+          let metadataUrl = null;
+          const normalizedId = String(id || "").trim();
+          const normalizedType = providerType === "movie" ? "movie" : "tv";
+          if (/^tt\d+$/i.test(normalizedId)) {
+            metadataUrl = `https://api.themoviedb.org/3/find/${encodeURIComponent(normalizedId)}?api_key=${TMDB_API_KEY2}&external_source=imdb_id&language=en-US`;
+          } else if (/^\d+$/.test(normalizedId)) {
+            metadataUrl = `https://api.themoviedb.org/3/${normalizedType}/${normalizedId}?api_key=${TMDB_API_KEY2}&language=en-US`;
+          }
+          if (!metadataUrl) return null;
+          const response = yield fetchWithTimeout(metadataUrl, { timeout: FETCH_TIMEOUT });
+          if (!response.ok) return null;
+          const payload = yield response.json();
+          if (/^tt\d+$/i.test(normalizedId)) {
+            const results = normalizedType === "movie" ? payload == null ? void 0 : payload.movie_results : payload == null ? void 0 : payload.tv_results;
+            return Array.isArray(results) && results.length > 0 ? results[0] : null;
+          }
+          return payload;
+        } catch (e) {
+          console.error("[CinemaCity] TMDB metadata error:", e);
+          return null;
+        }
+      });
     }
     function getIdsFromKitsu(kitsuId, season, episode, providerContext = null) {
       return __async(this, null, function* () {
@@ -12056,18 +11943,19 @@ var require_cinemacity = __commonJS({
         }
       });
     }
-    function searchByImdb(imdbId) {
-      return __async(this, null, function* () {
+    function searchByImdb(_0) {
+      return __async(this, arguments, function* (imdbId, options = {}) {
         const cookies = getSessionCookies();
         const trySearch = (query) => __async(null, null, function* () {
           const searchUrl = `${BASE_URL}/index.php?do=search&subaction=search&story=${query}`;
           try {
-            const html = yield smartFetch(searchUrl, BASE_URL, {
-              timeout: FETCH_TIMEOUT,
-              headers: {
-                "Referer": `${BASE_URL}/`
-              }
-            });
+            const html = yield fetchHtml(searchUrl, {
+              "Referer": `${BASE_URL}/`,
+              "Cookie": cookies,
+              "User-Agent": USER_AGENT,
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+            }, options);
             const resultMatch = html.match(/Found\s+(\d+)\s+responses/i) || html.match(/Trovat[io]\s+(\d+)\s+risultat[io]/i) || html.match(/Query results\s*\d+\s*-\s*(\d+)/i);
             if (!resultMatch || parseInt(resultMatch[1]) === 0) {
               if (!html.includes(query)) return null;
@@ -12107,7 +11995,10 @@ var require_cinemacity = __commonJS({
               return { url: bestLink, title: bestTitle };
             }
           } catch (e) {
-            console.error(`[CinemaCity] Search error for ${query}:`, e);
+            const status = getHttpStatusFromError(e);
+            if (status !== 403 && status !== 404) {
+              console.error(`[CinemaCity] Search error for ${query}:`, e);
+            }
           }
           return null;
         });
@@ -12118,6 +12009,67 @@ var require_cinemacity = __commonJS({
           link = yield trySearch(numericId);
         }
         return link;
+      });
+    }
+    function searchByTitleFallback(_0, _1) {
+      return __async(this, arguments, function* (id, providerType, options = {}) {
+        const metadata = yield getTmdbMetadata(id, providerType);
+        const expectedTitles = Array.from(new Set([
+          metadata == null ? void 0 : metadata.title,
+          metadata == null ? void 0 : metadata.name,
+          metadata == null ? void 0 : metadata.original_title,
+          metadata == null ? void 0 : metadata.original_name
+        ].filter(Boolean)));
+        if (expectedTitles.length === 0) {
+          return null;
+        }
+        const listingBase = providerType === "movie" ? `${BASE_URL}/movies/` : `${BASE_URL}/tv-series/`;
+        let bestResult = null;
+        let bestScore = 0;
+        const normalizedRequestedImdb = /^tt\d{5,}$/i.test(String(id || "").trim()) ? String(id).trim().toLowerCase() : null;
+        for (let page = 1; ; page++) {
+          const pageUrl = page === 1 ? listingBase : `${listingBase}page/${page}/`;
+          try {
+            const html = yield fetchHtml(pageUrl, {
+              "Referer": `${BASE_URL}/`,
+              "Upgrade-Insecure-Requests": "1",
+              "Sec-Fetch-Dest": "document",
+              "Sec-Fetch-Mode": "navigate",
+              "Sec-Fetch-Site": "same-origin",
+              "Sec-Fetch-User": "?1"
+            }, options);
+            const candidates = extractCandidateLinksFromListing(html, providerType);
+            if (candidates.length === 0) {
+              break;
+            }
+            for (const candidate of candidates) {
+              const score = scoreTitleMatch(candidate.title, expectedTitles);
+              if (score >= 80 && normalizedRequestedImdb) {
+                const candidateImdbId = yield verifyCandidateImdb(candidate.url, normalizedRequestedImdb);
+                if (candidateImdbId && candidateImdbId === normalizedRequestedImdb) {
+                  return candidate;
+                }
+                if (candidateImdbId && candidateImdbId !== normalizedRequestedImdb) {
+                  continue;
+                }
+              }
+              if (score > bestScore) {
+                bestScore = score;
+                bestResult = candidate;
+              }
+            }
+            if (bestScore >= 100) {
+              return bestResult;
+            }
+          } catch (e) {
+            const status = getHttpStatusFromError(e);
+            if (status !== 404 && status !== 403) {
+              console.error(`[CinemaCity] Listing fallback error for page ${pageUrl}:`, e);
+            }
+            break;
+          }
+        }
+        return bestScore >= 80 ? bestResult : null;
       });
     }
     function extractJsonArray(decoded) {
@@ -12285,9 +12237,13 @@ var require_cinemacity = __commonJS({
         }
         try {
           const isStremioAddon = providerContext && providerContext.__requestContext === true;
+          const useServerBypass = isStremioAddon && IS_SERVER;
           const proxyUrl = providerContext && providerContext.proxyUrl || (typeof global !== "undefined" && global.CF_PROXY_URL ? global.CF_PROXY_URL : null);
           const proxyPassword = providerContext && providerContext.proxyPassword || "";
-          const searchResult = yield searchByImdb(imdbId);
+          let searchResult = yield searchByImdb(imdbId, { useBypass: useServerBypass });
+          if (!searchResult || !searchResult.url) {
+            searchResult = yield searchByTitleFallback(imdbId, providerType, { useBypass: useServerBypass });
+          }
           if (!searchResult || !searchResult.url) {
             return [];
           }
@@ -12319,14 +12275,17 @@ var require_cinemacity = __commonJS({
             };
             return [formatStream(stremioResult, "CinemaCity")];
           }
-          const html = yield smartFetch(movieUrl, BASE_URL, {
-            timeout: FETCH_TIMEOUT,
-            headers: {
-              "Referer": `${BASE_URL}/`
-            }
+          const cookies = getSessionCookies();
+          const html = yield fetchHtml(movieUrl, {
+            "Referer": `${BASE_URL}/`,
+            "Cookie": cookies,
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+          }, {
+            useBypass: useServerBypass
           });
           const playerReferer = extractPlayerReferer(html, movieUrl);
-          const cookies = getSessionCookies();
           const atobRegex = /atob\s*\(\s*['"](.*?)['"]\s*\)/gi;
           let match;
           let fileData = null;
@@ -12415,7 +12374,6 @@ var require_cinemacity = __commonJS({
 
 // src/index.js
 var guardahd = require_guardahd();
-var guardaserie = require_guardaserie();
 var guardoserie = require_guardoserie();
 var streamingcommunity = require_streamingcommunity();
 var animeunity = require_animeunity();
@@ -12555,15 +12513,15 @@ function getStreams(id, type, season, episode) {
         selectedProviders.push("streamingcommunity", "guardahd", "guardoserie", "cinemacity");
       }
     } else if (normalizedType === "anime") {
-      selectedProviders.push("animeunity", "animeworld", "animesaturn", "guardaserie", "guardoserie");
+      selectedProviders.push("animeunity", "animeworld", "animesaturn", "guardoserie");
     } else if (normalizedType === "tv" || normalizedType === "series") {
       if (likelyAnime) {
-        selectedProviders.push("animeunity", "animeworld", "animesaturn", "guardaserie", "guardoserie");
+        selectedProviders.push("animeunity", "animeworld", "animesaturn", "guardoserie");
       } else {
         if (isImdbRequest) {
-          selectedProviders.push("streamingcommunity", "guardaserie", "guardoserie", "cinemacity");
+          selectedProviders.push("streamingcommunity", "guardoserie", "cinemacity");
         } else {
-          selectedProviders.push("streamingcommunity", "guardaserie", "guardoserie", "animeunity", "animeworld", "animesaturn");
+          selectedProviders.push("streamingcommunity", "guardoserie", "animeunity", "animeworld", "animesaturn");
         }
       }
     } else {
@@ -12579,12 +12537,6 @@ function getStreams(id, type, season, episode) {
       if (providerName === "guardahd") {
         promises.push(
           guardahd.getStreams(id, normalizedType, effectiveSeason, normalizedEpisode).then((s) => ({ provider: "GuardaHD", streams: s, status: "fulfilled" })).catch((e) => ({ provider: "GuardaHD", error: e, status: "rejected" }))
-        );
-        continue;
-      }
-      if (providerName === "guardaserie") {
-        promises.push(
-          guardaserie.getStreams(id, normalizedType, effectiveSeason, normalizedEpisode, sharedContext).then((s) => ({ provider: "Guardaserie", streams: s, status: "fulfilled" })).catch((e) => ({ provider: "Guardaserie", error: e, status: "rejected" }))
         );
         continue;
       }

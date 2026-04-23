@@ -1,11 +1,11 @@
 {
   "name": "EasyStreams",
-  "version": "1.1.59",
+  "version": "1.1.64",
   "scrapers": [
     {
       "id": "easystreams-guardoserie",
       "name": "Guardoserie",
-      "version": "1.1.17",
+      "version": "1.1.18",
       "description": "Movies and Series from Guardoserie",
       "resources": ["stream"],
       "contentLanguage": ["it"],
@@ -29,22 +29,9 @@
       "enabled": true
     },
     {
-      "id": "easystreams-guardaserie",
-      "name": "Guardaserie",
-      "version": "1.1.12",
-      "description": "TV Series from Guardaserie",
-      "resources": ["stream"],
-      "contentLanguage": ["it"],
-      "formats": ["mp4", "m3u8"],
-      "idPrefixes": ["tmdb:", "tt"],
-      "filename": "providers/guardaserie.js",
-      "supportedTypes": ["tv"],
-      "enabled": true
-    },
-    {
       "id": "easystreams-animeunity",
       "name": "AnimeUnity",
-      "version": "1.1.9",
+      "version": "1.1.10",
       "description": "Anime from AnimeUnity",
       "resources": ["stream"],
       "contentLanguage": ["it"],
@@ -96,7 +83,7 @@
     {
       "id": "easystreams-cinemacity",
       "name": "CinemaCity",
-      "version": "1.0.20",
+      "version": "1.0.25",
       "description": "Movies and Series from CinemaCity",
       "resources": ["stream"],
       "contentLanguage": ["it"],

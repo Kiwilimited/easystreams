@@ -1,2 +1,6 @@
 node_modules/
 package-lock.json
+/flaresolverr-bin
+/scratch
+cf-session-cinemacity.json
+cf-session-guardoserie.json

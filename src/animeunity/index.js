@@ -279,9 +279,9 @@ function sanitizeAnimeTitle(rawTitle) {
   // Remove language markers often embedded in AU page titles.
   text = text
     .replace(/\s*[\[(]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*[\])]\s*/gi, " ")
-    .replace(/\s*[-–_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "")
+    .replace(/\s*[-\u2013_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "")
     .replace(/\s{2,}/g, " ")
-    .replace(/\s*[-–_|:]\s*$/g, "")
+    .replace(/\s*[-\u2013_|:]\s*$/g, "")
     .trim();
 
   return text || null;
@@ -348,7 +348,9 @@ function extractAnimeIdFromPath(animePath) {
 }
 
 function resolveLanguageEmoji(sourceTag) {
-  return String(sourceTag || "").toUpperCase() === "ITA" ? "????" : "????";
+  return String(sourceTag || "").toUpperCase() === "ITA"
+    ? "\u{1F1EE}\u{1F1F9}"
+    : "\u{1F1EF}\u{1F1F5}";
 }
 
 function extractQualityHint(value) {
